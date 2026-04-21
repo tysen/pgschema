@@ -1,0 +1,20 @@
+Plan: 2 to add.
+
+Summary by type:
+  types: 1 to add
+  tables: 1 to add
+
+Types:
+  + bar
+
+Tables:
+  + foo
+
+DDL to be executed:
+--------------------------------------------------
+
+CREATE TABLE IF NOT EXISTS foo (
+    id uuid
+);
+
+CREATE TYPE bar AS (foo_col foo);

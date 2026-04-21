@@ -1496,14 +1496,25 @@ func (d *ddlDiff) generateCreateSQL(targetSchema string, collector *diffCollecto
 	// Build function lookup early - needed for both domain and table dependency checks
 	newFunctionLookup := buildFunctionLookup(d.addedFunctions)
 
-	// Separate types into domains with/without function dependencies
-	// Domains with function deps (e.g., CHECK constraints referencing functions) must be created after functions
+	// Build lookup of all new table names (qualified, lowercased) — used for policy
+	// deferral (#373) and for composite types that reference a new table's row type.
+	newTableLookup := make(map[string]struct{}, len(d.addedTables))
+	for _, table := range d.addedTables {
+		newTableLookup[fmt.Sprintf("%s.%s", strings.ToLower(table.Schema), strings.ToLower(table.Name))] = struct{}{}
+	}
+
+	// Separate types into buckets based on deferred dependencies:
+	//   - typesWithoutFunctionDeps: enums, domains w/o function deps, composites w/o table-row-type deps
+	//   - domainsWithFunctionDeps: domains whose CHECK/DEFAULT reference a new function
+	//   - compositesWithTableDeps: composite types whose attributes reference a new table's row type
 	typesWithoutFunctionDeps := []*ir.Type{}
 	domainsWithFunctionDeps := []*ir.Type{}
+	compositesWithTableDeps := []*ir.Type{}
 	deferredDomainLookup := make(map[string]struct{})
 
 	for _, typeObj := range d.addedTypes {
-		if typeObj.Kind == ir.TypeKindDomain && domainReferencesNewFunction(typeObj, newFunctionLookup) {
+		switch {
+		case typeObj.Kind == ir.TypeKindDomain && domainReferencesNewFunction(typeObj, newFunctionLookup):
 			domainsWithFunctionDeps = append(domainsWithFunctionDeps, typeObj)
 			// Track deferred domains so we can defer tables that use them
 			deferredDomainLookup[strings.ToLower(typeObj.Name)] = struct{}{}
@@ -1511,12 +1522,14 @@ func (d *ddlDiff) generateCreateSQL(targetSchema string, collector *diffCollecto
 				qualified := fmt.Sprintf("%s.%s", strings.ToLower(typeObj.Schema), strings.ToLower(typeObj.Name))
 				deferredDomainLookup[qualified] = struct{}{}
 			}
-		} else {
+		case typeObj.Kind == ir.TypeKindComposite && compositeReferencesNewTable(typeObj, newTableLookup):
+			compositesWithTableDeps = append(compositesWithTableDeps, typeObj)
+		default:
 			typesWithoutFunctionDeps = append(typesWithoutFunctionDeps, typeObj)
 		}
 	}
 
-	// Create types WITHOUT function dependencies (enum, composite, and domains without function deps)
+	// Create types WITHOUT deferred dependencies (enums, most composites, non-deferred domains)
 	generateCreateTypesSQL(typesWithoutFunctionDeps, targetSchema, collector)
 
 	// Create sequences
@@ -1527,12 +1540,6 @@ func (d *ddlDiff) generateCreateSQL(targetSchema string, collector *diffCollecto
 	for _, tableDiff := range d.modifiedTables {
 		key := fmt.Sprintf("%s.%s", tableDiff.Table.Schema, tableDiff.Table.Name)
 		existingTables[key] = true
-	}
-	// Build lookup of all new table names (qualified) for policy deferral (#373).
-	// Policies that reference other new tables must be deferred until all tables exist.
-	newTableLookup := make(map[string]struct{}, len(d.addedTables))
-	for _, table := range d.addedTables {
-		newTableLookup[fmt.Sprintf("%s.%s", strings.ToLower(table.Schema), strings.ToLower(table.Name))] = struct{}{}
 	}
 	var shouldDeferPolicy func(*ir.RLSPolicy) bool
 	if len(newFunctionLookup) > 0 || len(newTableLookup) > 0 {
@@ -1593,6 +1600,9 @@ func (d *ddlDiff) generateCreateSQL(targetSchema string, collector *diffCollecto
 
 	// Create tables WITH function/domain dependencies (now that functions and deferred domains exist)
 	deferredPolicies2, deferredConstraints2 := generateCreateTablesSQL(tablesWithDeps, targetSchema, collector, existingTables, shouldDeferPolicy)
+
+	// Create composite types that reference new tables' row types (now that all tables exist)
+	generateCreateTypesSQL(compositesWithTableDeps, targetSchema, collector)
 
 	// Add deferred foreign key constraints from BOTH batches AFTER all tables are created
 	// This ensures FK references to tables in the second batch (function-dependent tables) work correctly
@@ -2090,6 +2100,25 @@ func tableUsesDeferredDomain(table *ir.Table, deferredDomains map[string]struct{
 			if _, ok := deferredDomains[qualified]; ok {
 				return true
 			}
+		}
+	}
+	return false
+}
+
+// compositeReferencesNewTable returns true if a composite type has any attribute
+// whose data type matches a newly added table's row type. Such composites must be
+// created after the referenced tables exist.
+func compositeReferencesNewTable(typeObj *ir.Type, newTables map[string]struct{}) bool {
+	if typeObj == nil || typeObj.Kind != ir.TypeKindComposite || len(newTables) == 0 {
+		return false
+	}
+	for _, col := range typeObj.Columns {
+		name := extractTypeName(col.DataType, typeObj.Schema)
+		if name == "" {
+			continue
+		}
+		if _, ok := newTables[strings.ToLower(name)]; ok {
+			return true
 		}
 	}
 	return false
