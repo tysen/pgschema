@@ -4,10 +4,10 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/pgplex/pgschema/cmd/util"
-	"github.com/pgplex/pgschema/internal/diff"
-	"github.com/pgplex/pgschema/internal/dump"
-	"github.com/pgplex/pgschema/ir"
+	"github.com/tysen/pgschema/cmd/util"
+	"github.com/tysen/pgschema/internal/diff"
+	"github.com/tysen/pgschema/internal/dump"
+	"github.com/tysen/pgschema/ir"
 	"github.com/spf13/cobra"
 )
 

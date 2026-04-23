@@ -4,8 +4,8 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/pgplex/pgschema/internal/diff"
-	"github.com/pgplex/pgschema/ir"
+	"github.com/tysen/pgschema/internal/diff"
+	"github.com/tysen/pgschema/ir"
 )
 
 // RewriteStep represents a single step in a rewrite operation

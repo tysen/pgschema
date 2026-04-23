@@ -4,7 +4,7 @@ import (
 	"context"
 	"database/sql"
 
-	"github.com/pgplex/pgschema/internal/logger"
+	"github.com/tysen/pgschema/internal/logger"
 )
 
 // execer is an interface satisfied by both *sql.DB and *sql.Conn,

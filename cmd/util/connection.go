@@ -8,8 +8,8 @@ import (
 	"time"
 
 	_ "github.com/jackc/pgx/v5/stdlib"
-	"github.com/pgplex/pgschema/internal/logger"
-	"github.com/pgplex/pgschema/ir"
+	"github.com/tysen/pgschema/internal/logger"
+	"github.com/tysen/pgschema/ir"
 )
 
 // ConnectionConfig holds database connection parameters

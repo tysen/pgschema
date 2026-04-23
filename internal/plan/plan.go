@@ -8,10 +8,10 @@ import (
 	"strings"
 	"time"
 
-	"github.com/pgplex/pgschema/internal/color"
-	"github.com/pgplex/pgschema/internal/diff"
-	"github.com/pgplex/pgschema/internal/fingerprint"
-	"github.com/pgplex/pgschema/internal/version"
+	"github.com/tysen/pgschema/internal/color"
+	"github.com/tysen/pgschema/internal/diff"
+	"github.com/tysen/pgschema/internal/fingerprint"
+	"github.com/tysen/pgschema/internal/version"
 )
 
 // DirectiveType represents the different types of directives

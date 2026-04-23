@@ -5,7 +5,7 @@ import (
 	"math"
 	"strings"
 
-	"github.com/pgplex/pgschema/ir"
+	"github.com/tysen/pgschema/ir"
 )
 
 // Default values for PostgreSQL sequences by data type

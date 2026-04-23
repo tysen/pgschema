@@ -6,8 +6,8 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/pgplex/pgschema/internal/postgres"
-	"github.com/pgplex/pgschema/testutil"
+	"github.com/tysen/pgschema/internal/postgres"
+	"github.com/tysen/pgschema/testutil"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )

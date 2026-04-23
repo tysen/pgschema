@@ -3,7 +3,7 @@ package diff
 import (
 	"testing"
 
-	"github.com/pgplex/pgschema/ir"
+	"github.com/tysen/pgschema/ir"
 )
 
 func TestPolicyReferencesNewFunction_Unqualified(t *testing.T) {

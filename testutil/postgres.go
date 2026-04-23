@@ -10,8 +10,8 @@ import (
 
 	embeddedpostgres "github.com/fergusstrange/embedded-postgres"
 	_ "github.com/jackc/pgx/v5/stdlib"
-	"github.com/pgplex/pgschema/internal/postgres"
-	"github.com/pgplex/pgschema/ir"
+	"github.com/tysen/pgschema/internal/postgres"
+	"github.com/tysen/pgschema/ir"
 )
 
 // SetupPostgres creates a PostgreSQL instance for testing.

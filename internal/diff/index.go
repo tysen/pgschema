@@ -5,7 +5,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/pgplex/pgschema/ir"
+	"github.com/tysen/pgschema/ir"
 )
 
 // generateCreateIndexesSQL generates CREATE INDEX statements for table indexes

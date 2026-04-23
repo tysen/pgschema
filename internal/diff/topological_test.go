@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"testing"
 
-	"github.com/pgplex/pgschema/ir"
+	"github.com/tysen/pgschema/ir"
 )
 
 func TestTopologicallySortTablesHandlesCycles(t *testing.T) {

@@ -4,8 +4,8 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/pgplex/pgschema/internal/version"
-	"github.com/pgplex/pgschema/ir"
+	"github.com/tysen/pgschema/internal/version"
+	"github.com/tysen/pgschema/ir"
 )
 
 // GenerateDumpHeader generates the header for database dumps with metadata

@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/pgplex/pgschema/ir"
+	"github.com/tysen/pgschema/ir"
 )
 
 // generateConstraintSQL generates constraint definition for inline table constraints

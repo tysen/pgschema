@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/pgplex/pgschema/ir"
+	"github.com/tysen/pgschema/ir"
 )
 
 // generateCreateFunctionsSQL generates CREATE FUNCTION statements
@@ -103,7 +103,7 @@ func generateModifyFunctionsSQL(diffs []*functionDiff, targetSchema string, coll
 		} else if functionRequiresRecreate(oldFunc, newFunc) {
 			// Return type, OUT parameters, or parameter names changed - must DROP then CREATE
 			// PostgreSQL does not allow CREATE OR REPLACE to change these.
-			// See https://github.com/pgplex/pgschema/issues/326
+			// See https://github.com/tysen/pgschema/issues/326
 			dropSQL := generateDropFunctionSQL(oldFunc, targetSchema)
 			createSQL := generateFunctionSQL(newFunc, targetSchema)
 

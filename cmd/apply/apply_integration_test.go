@@ -8,11 +8,11 @@ import (
 	"strings"
 	"testing"
 
-	planCmd "github.com/pgplex/pgschema/cmd/plan"
-	"github.com/pgplex/pgschema/cmd/util"
-	"github.com/pgplex/pgschema/internal/plan"
-	"github.com/pgplex/pgschema/internal/postgres"
-	"github.com/pgplex/pgschema/testutil"
+	planCmd "github.com/tysen/pgschema/cmd/plan"
+	"github.com/tysen/pgschema/cmd/util"
+	"github.com/tysen/pgschema/internal/plan"
+	"github.com/tysen/pgschema/internal/postgres"
+	"github.com/tysen/pgschema/testutil"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )

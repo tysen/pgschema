@@ -7,7 +7,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/pgplex/pgschema/ir"
+	"github.com/tysen/pgschema/ir"
 )
 
 // DiffType represents the type of database object being changed
@@ -1146,7 +1146,7 @@ func GenerateMigration(oldIR, newIR *ir.IR, targetSchema string) []Diff {
 	// 2. Added defaults (will be created BEFORE tables in our migration order)
 	// NOT included: Modified defaults - the modification runs AFTER table creation, so the OLD
 	// version is what's active when the table is created. The old defaults are already included.
-	// See https://github.com/pgplex/pgschema/pull/257#pullrequestreview-3706696119
+	// See https://github.com/tysen/pgschema/pull/257#pullrequestreview-3706696119
 
 	// Build a set of dropped default privilege keys for exclusion
 	droppedDefaultPrivKeys := make(map[string]bool)
@@ -1201,7 +1201,7 @@ func GenerateMigration(oldIR, newIR *ir.IR, targetSchema string) []Diff {
 	// but should be explicitly revoked because the user didn't include them in the new state.
 	// These must be processed AFTER the tables are created, not in the drop phase.
 	// Use activeDefaultPrivileges because that's what will be granted when the table is created.
-	// See https://github.com/pgplex/pgschema/issues/253
+	// See https://github.com/tysen/pgschema/issues/253
 	diff.revokedDefaultGrantsOnNewTables = computeRevokedDefaultGrants(diff.addedTables, newPrivs, activeDefaultPrivileges)
 
 	// Sort privileges for deterministic output
@@ -1503,30 +1503,66 @@ func (d *ddlDiff) generateCreateSQL(targetSchema string, collector *diffCollecto
 		newTableLookup[fmt.Sprintf("%s.%s", strings.ToLower(table.Schema), strings.ToLower(table.Name))] = struct{}{}
 	}
 
-	// Separate types into buckets based on deferred dependencies:
-	//   - typesWithoutFunctionDeps: enums, domains w/o function deps, composites w/o table-row-type deps
+	// Compute the set of types that must be deferred until after all tables exist,
+	// via transitive closure. Seed with composites that directly reference a new
+	// table's row type, then propagate: any composite whose attribute references a
+	// deferred type, and any domain whose base type is a deferred type, must also
+	// be deferred. Keyed by lowercased "schema.name".
+	deferredTypes := make(map[string]struct{})
+	typeKey := func(t *ir.Type) string {
+		return fmt.Sprintf("%s.%s", strings.ToLower(t.Schema), strings.ToLower(t.Name))
+	}
+	for _, typeObj := range d.addedTypes {
+		if typeObj.Kind == ir.TypeKindComposite && compositeReferencesNewTable(typeObj, newTableLookup) {
+			deferredTypes[typeKey(typeObj)] = struct{}{}
+		}
+	}
+	for {
+		changed := false
+		for _, typeObj := range d.addedTypes {
+			key := typeKey(typeObj)
+			if _, already := deferredTypes[key]; already {
+				continue
+			}
+			if typeReferencesDeferredType(typeObj, deferredTypes) {
+				deferredTypes[key] = struct{}{}
+				changed = true
+			}
+		}
+		if !changed {
+			break
+		}
+	}
+
+	// Separate types into three buckets:
+	//   - typesWithoutFunctionDeps: enums, simple composites, domains without any deferred deps
 	//   - domainsWithFunctionDeps: domains whose CHECK/DEFAULT reference a new function
-	//   - compositesWithTableDeps: composite types whose attributes reference a new table's row type
+	//     (created after functions but before tables-with-deps)
+	//   - deferredTypesList: composites referencing new tables (directly or transitively)
+	//     and domains whose base type is a deferred type — emitted after all tables exist
 	typesWithoutFunctionDeps := []*ir.Type{}
 	domainsWithFunctionDeps := []*ir.Type{}
-	compositesWithTableDeps := []*ir.Type{}
+	deferredTypesList := []*ir.Type{}
+	// deferredDomainLookup flags domains in domainsWithFunctionDeps, used to route
+	// tables that use those domains into tablesWithDeps.
 	deferredDomainLookup := make(map[string]struct{})
 
 	for _, typeObj := range d.addedTypes {
-		switch {
-		case typeObj.Kind == ir.TypeKindDomain && domainReferencesNewFunction(typeObj, newFunctionLookup):
+		if _, isDeferred := deferredTypes[typeKey(typeObj)]; isDeferred {
+			// Deferred wins over function-dep routing: by phase 9, functions already exist.
+			deferredTypesList = append(deferredTypesList, typeObj)
+			continue
+		}
+		if typeObj.Kind == ir.TypeKindDomain && domainReferencesNewFunction(typeObj, newFunctionLookup) {
 			domainsWithFunctionDeps = append(domainsWithFunctionDeps, typeObj)
-			// Track deferred domains so we can defer tables that use them
 			deferredDomainLookup[strings.ToLower(typeObj.Name)] = struct{}{}
 			if typeObj.Schema != "" {
 				qualified := fmt.Sprintf("%s.%s", strings.ToLower(typeObj.Schema), strings.ToLower(typeObj.Name))
 				deferredDomainLookup[qualified] = struct{}{}
 			}
-		case typeObj.Kind == ir.TypeKindComposite && compositeReferencesNewTable(typeObj, newTableLookup):
-			compositesWithTableDeps = append(compositesWithTableDeps, typeObj)
-		default:
-			typesWithoutFunctionDeps = append(typesWithoutFunctionDeps, typeObj)
+			continue
 		}
+		typesWithoutFunctionDeps = append(typesWithoutFunctionDeps, typeObj)
 	}
 
 	// Create types WITHOUT deferred dependencies (enums, most composites, non-deferred domains)
@@ -1554,15 +1590,26 @@ func (d *ddlDiff) generateCreateSQL(targetSchema string, collector *diffCollecto
 	// Create default privileges BEFORE tables so auto-grants apply to new tables
 	generateCreateDefaultPrivilegesSQL(d.addedDefaultPrivileges, targetSchema, collector)
 
-	// Separate tables into those that depend on new functions/deferred domains and those that don't
-	// This ensures we create functions and domains before tables that use them
+	// Separate tables into three buckets based on their deferred dependencies:
+	//   - tablesWithDeferredType: table uses a type that's in deferredTypes
+	//     (composite-of-table, transitively-deferred composite, or deferred domain
+	//     over a deferred composite). Emitted AFTER deferredTypesList.
+	//   - tablesWithDeps: table references a new function or a function-dep domain.
+	//     Emitted after functions/procedures but before deferredTypesList.
+	//   - tablesWithoutDeps: everything else. Emitted first.
+	// tablesWithDeferredType takes precedence so that by the time it emits, any
+	// function or function-dep domain it might also use is already created.
 	tablesWithoutDeps := []*ir.Table{}
 	tablesWithDeps := []*ir.Table{}
+	tablesWithDeferredType := []*ir.Table{}
 
 	for _, table := range d.addedTables {
-		if tableReferencesNewFunction(table, newFunctionLookup) || tableUsesDeferredDomain(table, deferredDomainLookup) {
+		switch {
+		case tableUsesDeferredType(table, deferredTypes):
+			tablesWithDeferredType = append(tablesWithDeferredType, table)
+		case tableReferencesNewFunction(table, newFunctionLookup) || tableUsesDeferredDomain(table, deferredDomainLookup):
 			tablesWithDeps = append(tablesWithDeps, table)
-		} else {
+		default:
 			tablesWithoutDeps = append(tablesWithoutDeps, table)
 		}
 	}
@@ -1601,16 +1648,21 @@ func (d *ddlDiff) generateCreateSQL(targetSchema string, collector *diffCollecto
 	// Create tables WITH function/domain dependencies (now that functions and deferred domains exist)
 	deferredPolicies2, deferredConstraints2 := generateCreateTablesSQL(tablesWithDeps, targetSchema, collector, existingTables, shouldDeferPolicy)
 
-	// Create composite types that reference new tables' row types (now that all tables exist)
-	generateCreateTypesSQL(compositesWithTableDeps, targetSchema, collector)
+	// Create deferred types (composites referencing tables directly or transitively,
+	// plus domains over deferred composites). topologicallySortTypes orders within the batch.
+	generateCreateTypesSQL(deferredTypesList, targetSchema, collector)
 
-	// Add deferred foreign key constraints from BOTH batches AFTER all tables are created
-	// This ensures FK references to tables in the second batch (function-dependent tables) work correctly
+	// Create tables that use a deferred type (now that deferredTypesList is emitted)
+	deferredPolicies3, deferredConstraints3 := generateCreateTablesSQL(tablesWithDeferredType, targetSchema, collector, existingTables, shouldDeferPolicy)
+
+	// Add deferred foreign key constraints from all three table batches AFTER all tables are created
 	allDeferredConstraints := append(deferredConstraints1, deferredConstraints2...)
+	allDeferredConstraints = append(allDeferredConstraints, deferredConstraints3...)
 	generateDeferredConstraintsSQL(allDeferredConstraints, targetSchema, collector)
 
-	// Merge deferred policies from both batches
+	// Merge deferred policies from all three batches
 	allDeferredPolicies := append(deferredPolicies1, deferredPolicies2...)
+	allDeferredPolicies = append(allDeferredPolicies, deferredPolicies3...)
 
 	// Create policies after functions/procedures to satisfy dependencies
 	generateCreatePoliciesSQL(allDeferredPolicies, targetSchema, collector)
@@ -1628,7 +1680,7 @@ func (d *ddlDiff) generateCreateSQL(targetSchema string, collector *diffCollecto
 
 	// Revoke default grants on new tables that the user explicitly didn't include
 	// This must happen AFTER tables are created but BEFORE explicit grants
-	// See https://github.com/pgplex/pgschema/issues/253
+	// See https://github.com/tysen/pgschema/issues/253
 	generateDropPrivilegesSQL(d.revokedDefaultGrantsOnNewTables, targetSchema, collector)
 
 	// Revoke default PUBLIC privileges (new revokes)
@@ -1638,7 +1690,7 @@ func (d *ddlDiff) generateCreateSQL(targetSchema string, collector *diffCollecto
 	// (after object modifications/recreations) to ensure:
 	// 1. DROP+CREATE'd objects (e.g., materialized views) don't wipe out privilege changes
 	// 2. REVOKEs from modifications execute before new GRANTs
-	// See https://github.com/pgplex/pgschema/issues/324
+	// See https://github.com/tysen/pgschema/issues/324
 }
 
 // generateModifySQL generates ALTER statements
@@ -1685,7 +1737,7 @@ func (d *ddlDiff) generateModifySQL(targetSchema string, collector *diffCollecto
 	// to avoid DROP+CREATE'd objects (e.g., materialized views) wiping out privilege changes.
 	// Modifications (which contain REVOKEs) run before creates (which contain GRANTs)
 	// to prevent table-level REVOKEs from undoing column-level GRANTs.
-	// See https://github.com/pgplex/pgschema/issues/324
+	// See https://github.com/tysen/pgschema/issues/324
 	generateModifyPrivilegesSQL(d.modifiedPrivileges, targetSchema, collector)
 	generateModifyColumnPrivilegesSQL(d.modifiedColumnPrivileges, targetSchema, collector)
 	generateCreatePrivilegesSQL(d.addedPrivileges, targetSchema, collector)
@@ -2106,8 +2158,8 @@ func tableUsesDeferredDomain(table *ir.Table, deferredDomains map[string]struct{
 }
 
 // compositeReferencesNewTable returns true if a composite type has any attribute
-// whose data type matches a newly added table's row type. Such composites must be
-// created after the referenced tables exist.
+// whose data type matches a newly added table's row type. Used to seed the
+// deferred-types set; transitive propagation is handled by typeReferencesDeferredType.
 func compositeReferencesNewTable(typeObj *ir.Type, newTables map[string]struct{}) bool {
 	if typeObj == nil || typeObj.Kind != ir.TypeKindComposite || len(newTables) == 0 {
 		return false
@@ -2118,6 +2170,57 @@ func compositeReferencesNewTable(typeObj *ir.Type, newTables map[string]struct{}
 			continue
 		}
 		if _, ok := newTables[strings.ToLower(name)]; ok {
+			return true
+		}
+	}
+	return false
+}
+
+// typeReferencesDeferredType returns true if typeObj transitively depends on
+// any type already in the deferred set: a composite with an attribute whose
+// type is deferred, or a domain whose base type is deferred.
+func typeReferencesDeferredType(typeObj *ir.Type, deferred map[string]struct{}) bool {
+	if typeObj == nil || len(deferred) == 0 {
+		return false
+	}
+	switch typeObj.Kind {
+	case ir.TypeKindComposite:
+		for _, col := range typeObj.Columns {
+			name := extractTypeName(col.DataType, typeObj.Schema)
+			if name == "" {
+				continue
+			}
+			if _, ok := deferred[strings.ToLower(name)]; ok {
+				return true
+			}
+		}
+	case ir.TypeKindDomain:
+		name := extractTypeName(typeObj.BaseType, typeObj.Schema)
+		if name == "" {
+			return false
+		}
+		if _, ok := deferred[strings.ToLower(name)]; ok {
+			return true
+		}
+	}
+	return false
+}
+
+// tableUsesDeferredType returns true if any column's type is in the deferred set.
+// Such tables must be created after deferredTypesList is emitted.
+func tableUsesDeferredType(table *ir.Table, deferred map[string]struct{}) bool {
+	if len(deferred) == 0 || table == nil {
+		return false
+	}
+	for _, col := range table.Columns {
+		if col.DataType == "" {
+			continue
+		}
+		name := extractTypeName(col.DataType, table.Schema)
+		if name == "" {
+			continue
+		}
+		if _, ok := deferred[strings.ToLower(name)]; ok {
 			return true
 		}
 	}

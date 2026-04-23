@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/pgplex/pgschema/internal/plan"
+	"github.com/tysen/pgschema/internal/plan"
 )
 
 const (

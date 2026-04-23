@@ -8,13 +8,13 @@ import (
 	"os"
 	"strings"
 
-	planCmd "github.com/pgplex/pgschema/cmd/plan"
-	"github.com/pgplex/pgschema/cmd/util"
-	"github.com/pgplex/pgschema/internal/fingerprint"
-	"github.com/pgplex/pgschema/internal/plan"
-	"github.com/pgplex/pgschema/internal/postgres"
-	"github.com/pgplex/pgschema/internal/version"
-	"github.com/pgplex/pgschema/ir"
+	planCmd "github.com/tysen/pgschema/cmd/plan"
+	"github.com/tysen/pgschema/cmd/util"
+	"github.com/tysen/pgschema/internal/fingerprint"
+	"github.com/tysen/pgschema/internal/plan"
+	"github.com/tysen/pgschema/internal/postgres"
+	"github.com/tysen/pgschema/internal/version"
+	"github.com/tysen/pgschema/ir"
 	"github.com/spf13/cobra"
 )
 

@@ -16,9 +16,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/pgplex/pgschema/cmd/apply"
-	"github.com/pgplex/pgschema/cmd/dump"
-	"github.com/pgplex/pgschema/testutil"
+	"github.com/tysen/pgschema/cmd/apply"
+	"github.com/tysen/pgschema/cmd/dump"
+	"github.com/tysen/pgschema/testutil"
 	"github.com/spf13/cobra"
 )
 

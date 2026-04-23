@@ -7,9 +7,9 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/pgplex/pgschema/internal/diff"
-	"github.com/pgplex/pgschema/internal/version"
-	"github.com/pgplex/pgschema/ir"
+	"github.com/tysen/pgschema/internal/diff"
+	"github.com/tysen/pgschema/internal/version"
+	"github.com/tysen/pgschema/ir"
 )
 
 // DumpFormatter handles formatting SQL output for database dumps

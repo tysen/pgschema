@@ -14,7 +14,7 @@ import (
 
 	embeddedpostgres "github.com/fergusstrange/embedded-postgres"
 	_ "github.com/jackc/pgx/v5/stdlib"
-	"github.com/pgplex/pgschema/cmd/util"
+	"github.com/tysen/pgschema/cmd/util"
 )
 
 // PostgresVersion is an alias for the embedded-postgres version type.

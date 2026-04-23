@@ -8,7 +8,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/pgplex/pgschema/testutil"
+	"github.com/tysen/pgschema/testutil"
 	"github.com/spf13/cobra"
 )
 

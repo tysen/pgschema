@@ -13,10 +13,10 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/pgplex/pgschema/cmd/apply"
-	"github.com/pgplex/pgschema/cmd/dump"
-	planCmd "github.com/pgplex/pgschema/cmd/plan"
-	"github.com/pgplex/pgschema/testutil"
+	"github.com/tysen/pgschema/cmd/apply"
+	"github.com/tysen/pgschema/cmd/dump"
+	planCmd "github.com/tysen/pgschema/cmd/plan"
+	"github.com/tysen/pgschema/testutil"
 	"github.com/spf13/cobra"
 )
 
@@ -1168,7 +1168,7 @@ func cleanupSharedEmbeddedPG(t *testing.T) {
 
 // TestIgnorePrivilegesForIgnoredObjects tests that privileges on ignored objects
 // (functions, tables, etc.) are also excluded from dump/plan output.
-// Reproduces https://github.com/pgplex/pgschema/issues/392
+// Reproduces https://github.com/tysen/pgschema/issues/392
 func TestIgnorePrivilegesForIgnoredObjects(t *testing.T) {
 	if testing.Short() {
 		t.Skip("Skipping integration test in short mode")

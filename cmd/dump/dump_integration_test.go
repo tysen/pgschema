@@ -14,8 +14,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/pgplex/pgschema/ir"
-	"github.com/pgplex/pgschema/testutil"
+	"github.com/tysen/pgschema/ir"
+	"github.com/tysen/pgschema/testutil"
 )
 
 func TestDumpCommand_Employee(t *testing.T) {

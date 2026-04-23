@@ -1,0 +1,23 @@
+Plan: 3 to add.
+
+Summary by type:
+  types: 2 to add
+  tables: 1 to add
+
+Types:
+  + mid
+  + outer_t
+
+Tables:
+  + foo
+
+DDL to be executed:
+--------------------------------------------------
+
+CREATE TABLE IF NOT EXISTS foo (
+    id uuid
+);
+
+CREATE TYPE mid AS (f foo);
+
+CREATE TYPE outer_t AS (m mid);

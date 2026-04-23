@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/pgplex/pgschema/testutil"
+	"github.com/tysen/pgschema/testutil"
 )
 
 // TestNonPublicSchemaOperations verifies that pgschema works correctly with non-public schemas.

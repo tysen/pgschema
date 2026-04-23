@@ -4,7 +4,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/pgplex/pgschema/ir"
+	"github.com/tysen/pgschema/ir"
 )
 
 // topologicallySortTables sorts tables across all schemas in dependency order

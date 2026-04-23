@@ -3,7 +3,7 @@ package diff
 import (
 	"testing"
 
-	"github.com/pgplex/pgschema/ir"
+	"github.com/tysen/pgschema/ir"
 )
 
 func TestGenerateConstraintSQL_WithQuoting(t *testing.T) {

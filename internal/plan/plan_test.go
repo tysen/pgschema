@@ -11,10 +11,10 @@ import (
 	"time"
 
 	"github.com/google/go-cmp/cmp"
-	"github.com/pgplex/pgschema/internal/diff"
-	"github.com/pgplex/pgschema/internal/postgres"
-	"github.com/pgplex/pgschema/ir"
-	"github.com/pgplex/pgschema/testutil"
+	"github.com/tysen/pgschema/internal/diff"
+	"github.com/tysen/pgschema/internal/postgres"
+	"github.com/tysen/pgschema/ir"
+	"github.com/tysen/pgschema/testutil"
 )
 
 // sharedTestPostgres is the shared embedded postgres instance for all tests in this package

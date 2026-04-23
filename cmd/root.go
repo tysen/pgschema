@@ -6,11 +6,11 @@ import (
 	"os"
 	"runtime"
 
-	"github.com/pgplex/pgschema/cmd/apply"
-	"github.com/pgplex/pgschema/cmd/dump"
-	"github.com/pgplex/pgschema/cmd/plan"
-	globallogger "github.com/pgplex/pgschema/internal/logger"
-	"github.com/pgplex/pgschema/internal/version"
+	"github.com/tysen/pgschema/cmd/apply"
+	"github.com/tysen/pgschema/cmd/dump"
+	"github.com/tysen/pgschema/cmd/plan"
+	globallogger "github.com/tysen/pgschema/internal/logger"
+	"github.com/tysen/pgschema/internal/version"
 	"github.com/spf13/cobra"
 )
 
