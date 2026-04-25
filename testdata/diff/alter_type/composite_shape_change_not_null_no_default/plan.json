@@ -1,0 +1,44 @@
+{
+  "version": "1.0.0",
+  "pgschema_version": "1.9.0",
+  "created_at": "1970-01-01T00:00:00Z",
+  "source_fingerprint": {
+    "hash": "589b8330767ffa49c88ab8489199b94cdbb7d96fc96e12c63dd206d57cdae9ef"
+  },
+  "groups": [
+    {
+      "steps": [
+        {
+          "sql": "-- WARNING: composite type shape change; DROP+CREATE is the only safe path.\n-- column public.user_profile.home is being dropped+re-added with NOT NULL but no DEFAULT; on a non-empty table this will fail at apply. Add a DEFAULT or use a migrate-using directive if data exists.\n-- Function/procedure signatures referencing recreated composites are not detected; if any exist, apply will fail with a clear PG error.",
+          "type": "type",
+          "operation": "recreate",
+          "path": "public.location"
+        },
+        {
+          "sql": "ALTER TABLE user_profile DROP COLUMN home;",
+          "type": "table",
+          "operation": "recreate",
+          "path": "public.user_profile.home"
+        },
+        {
+          "sql": "DROP TYPE IF EXISTS location RESTRICT;",
+          "type": "type",
+          "operation": "recreate",
+          "path": "public.location"
+        },
+        {
+          "sql": "CREATE TYPE location AS (city text, state text, country text);",
+          "type": "type",
+          "operation": "recreate",
+          "path": "public.location"
+        },
+        {
+          "sql": "ALTER TABLE user_profile ADD COLUMN home location NOT NULL;",
+          "type": "table",
+          "operation": "recreate",
+          "path": "public.user_profile.home"
+        }
+      ]
+    }
+  ]
+}

@@ -180,8 +180,10 @@ func columnsEqual(old, new *ir.Column, targetSchema string) bool {
 		}
 	}
 
-	// Compare comments
-	if old.Comment != new.Comment {
+	// Compare comments. Strip the optional pgschema migrate-using directive
+	// prefix so a column carrying the directive doesn't look "changed" on
+	// every run.
+	if stripMigrateUsing(old.Comment) != stripMigrateUsing(new.Comment) {
 		return false
 	}
 

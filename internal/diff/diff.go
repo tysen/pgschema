@@ -264,7 +264,8 @@ type ddlDiff struct {
 	addedViews                []*ir.View
 	droppedViews              []*ir.View
 	modifiedViews             []*viewDiff
-	allNewViews               map[string]*ir.View // All views from new state (for dependent view handling)
+	allNewViews               map[string]*ir.View  // All views from new state (for dependent view handling)
+	allNewTables              map[string]*ir.Table // All tables from new state (for composite-type column dependency handling)
 	addedFunctions            []*ir.Function
 	droppedFunctions          []*ir.Function
 	modifiedFunctions         []*functionDiff
@@ -274,6 +275,7 @@ type ddlDiff struct {
 	addedTypes                []*ir.Type
 	droppedTypes              []*ir.Type
 	modifiedTypes             []*typeDiff
+	allNewTypes               map[string]*ir.Type // All types from new state (for composite recreate-cascade closure)
 	addedSequences            []*ir.Sequence
 	droppedSequences          []*ir.Sequence
 	modifiedSequences         []*sequenceDiff
@@ -513,6 +515,9 @@ func GenerateMigration(oldIR, newIR *ir.IR, targetSchema string) []Diff {
 		}
 	}
 
+	// Store all new tables for composite-type column dependency handling.
+	diff.allNewTables = newTables
+
 	// Find added tables
 	for key, table := range newTables {
 		if _, exists := oldTables[key]; !exists {
@@ -725,7 +730,7 @@ func GenerateMigration(oldIR, newIR *ir.IR, targetSchema string) []Diff {
 	for _, key := range typeKeys {
 		newType := newTypes[key]
 		if oldType, exists := oldTypes[key]; exists {
-			if !typesEqual(oldType, newType) {
+			if !typesEqual(oldType, newType, targetSchema) {
 				diff.modifiedTypes = append(diff.modifiedTypes, &typeDiff{
 					Old: oldType,
 					New: newType,
@@ -733,6 +738,12 @@ func GenerateMigration(oldIR, newIR *ir.IR, targetSchema string) []Diff {
 			}
 		}
 	}
+
+	// Stash the full new-state type map for the composite recreate-cascade
+	// closure. We need every composite in the schema (including ones that
+	// haven't themselves changed shape) so we can pull in nested composites
+	// whose attributes reference a recreating composite.
+	diff.allNewTypes = newTypes
 
 	// Compare views across all schemas
 	oldViews := make(map[string]*ir.View)
@@ -1414,7 +1425,7 @@ func (d *ddlDiff) generatePreDropMaterializedViewsSQL(targetSchema string, colle
 		affectedTables[key] = tableDiff.Table
 	}
 
-	if len(affectedTables) == 0 {
+	if len(affectedTables) == 0 && len(d.modifiedTypes) == 0 {
 		return preDropped
 	}
 
@@ -1482,6 +1493,108 @@ func (d *ddlDiff) generatePreDropMaterializedViewsSQL(targetSchema string, colle
 
 				preDropped[viewKey] = true
 				break
+			}
+		}
+	}
+
+	// Pre-drop materialized views that depend on composite types whose shape
+	// is changing. The composite recreate path itself only handles regular
+	// views; matviews need to be torn down before generateModifyTablesSQL
+	// runs (which may try to drop the column) and recreated through the
+	// normal modify-views pipeline.
+	if len(d.modifiedTypes) > 0 {
+		// Build the set of composite types that will be recreated.
+		recreatedComposites := make(map[string]struct{})
+		for _, td := range d.modifiedTypes {
+			if td.Old == nil || td.New == nil {
+				continue
+			}
+			if td.Old.Kind == ir.TypeKindComposite && td.New.Kind == ir.TypeKindComposite {
+				recreatedComposites[td.New.Schema+"."+td.New.Name] = struct{}{}
+			}
+		}
+		if len(recreatedComposites) > 0 {
+			// Find tables whose columns are typed as a recreated composite.
+			// A matview that selects from such a table needs to be pre-dropped.
+			tablesUsingComposite := make(map[string]*ir.Table)
+			for _, table := range d.allNewTables {
+				if table == nil {
+					continue
+				}
+				for _, col := range table.Columns {
+					for typeKey := range recreatedComposites {
+						parts := strings.SplitN(typeKey, ".", 2)
+						if len(parts) != 2 {
+							continue
+						}
+						if columnReferencesCompositeType(col, parts[0], parts[1]) {
+							tablesUsingComposite[table.Schema+"."+table.Name] = table
+							break
+						}
+					}
+				}
+			}
+
+			// Index existing modifiedViews so we can mutate or synthesize.
+			modifiedViewsByKey := make(map[string]*viewDiff, len(d.modifiedViews))
+			for _, vd := range d.modifiedViews {
+				if vd.New == nil {
+					continue
+				}
+				modifiedViewsByKey[vd.New.Schema+"."+vd.New.Name] = vd
+			}
+
+			// Walk every matview in the new state. We need to consider matviews
+			// even when they have no in-place modification, because a composite
+			// recreate invalidates the matview's stored column type OID even
+			// when its body text is unchanged.
+			matviewKeys := make([]string, 0, len(d.allNewViews))
+			for key, view := range d.allNewViews {
+				if view != nil && view.Materialized {
+					matviewKeys = append(matviewKeys, key)
+				}
+			}
+			sort.Strings(matviewKeys)
+
+			for _, viewKey := range matviewKeys {
+				view := d.allNewViews[viewKey]
+				if preDropped[viewKey] {
+					continue
+				}
+				depends := false
+				for _, table := range tablesUsingComposite {
+					if viewDependsOnTable(view, table.Schema, table.Name) {
+						depends = true
+						break
+					}
+				}
+				if !depends {
+					continue
+				}
+
+				// Make sure the matview goes through the modify-views recreate
+				// path so the CREATE comes back. If it isn't already there,
+				// synthesize a no-change viewDiff with RequiresRecreate=true.
+				vd := modifiedViewsByKey[viewKey]
+				if vd == nil {
+					vd = &viewDiff{Old: view, New: view, RequiresRecreate: true}
+					d.modifiedViews = append(d.modifiedViews, vd)
+					modifiedViewsByKey[viewKey] = vd
+				} else {
+					vd.RequiresRecreate = true
+				}
+
+				viewName := qualifyEntityName(view.Schema, view.Name, targetSchema)
+				sql := fmt.Sprintf("DROP MATERIALIZED VIEW %s RESTRICT;", viewName)
+				context := &diffContext{
+					Type:                DiffTypeMaterializedView,
+					Operation:           DiffOperationRecreate,
+					Path:                fmt.Sprintf("%s.%s", view.Schema, view.Name),
+					Source:              view,
+					CanRunInTransaction: true,
+				}
+				collector.collect(context, sql)
+				preDropped[viewKey] = true
 			}
 		}
 	}
@@ -1699,8 +1812,13 @@ func (d *ddlDiff) generateModifySQL(targetSchema string, collector *diffCollecto
 	// Modify schemas
 	// Note: Schema modification is out of scope for schema-level comparisons
 
-	// Modify types
-	generateModifyTypesSQL(d.modifiedTypes, targetSchema, collector)
+	// Modify types — composite shape changes require dropping/recreating
+	// dependent table columns and regular views around the type, plus the
+	// transitive closure of composites that nest a changing composite as an
+	// attribute. Compute the cascade contexts up front so
+	// generateModifyTypesSQL can sequence them.
+	typeTypeCtx, typeColCtx, typeViewCtx := findDependentObjectsForRecreatedTypes(d.allNewTypes, d.allNewTables, d.allNewViews, d.modifiedTypes)
+	generateModifyTypesSQL(d.modifiedTypes, targetSchema, collector, typeTypeCtx, typeColCtx, typeViewCtx)
 
 	// Modify sequences
 	generateModifySequencesSQL(d.modifiedSequences, targetSchema, collector)
@@ -1715,6 +1833,19 @@ func (d *ddlDiff) generateModifySQL(targetSchema string, collector *diffCollecto
 
 	// Track views recreated as dependencies to avoid duplicate processing
 	recreatedViews := make(map[string]bool)
+
+	// Mark views that were already recreated as part of composite-type
+	// recreation so the view modify pass skips them. The composite path
+	// emits both DROP and CREATE for these views; processing them again
+	// would duplicate the SQL.
+	if typeViewCtx != nil {
+		for _, v := range typeViewCtx.GetDependents(compositeRecreateBlockKey) {
+			if v == nil {
+				continue
+			}
+			recreatedViews[v.Schema+"."+v.Name] = true
+		}
+	}
 
 	// Sort modifiedViews to process materialized views with RequiresRecreate first.
 	// This ensures dependent views are added to recreatedViews before their own

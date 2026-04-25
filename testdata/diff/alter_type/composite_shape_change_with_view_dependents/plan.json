@@ -1,0 +1,68 @@
+{
+  "version": "1.0.0",
+  "pgschema_version": "1.9.0",
+  "created_at": "1970-01-01T00:00:00Z",
+  "source_fingerprint": {
+    "hash": "bb8ab6a43ef2731827c0cbba7e28cf710a81e185e5b6b63d7a4bc5696203d802"
+  },
+  "groups": [
+    {
+      "steps": [
+        {
+          "sql": "-- WARNING: composite type shape change; DROP+CREATE is the only safe path.\n-- column public.team_season.detail data will be lost\n-- view public.season_detail will be DROP+CREATEd; any view body that destructures composite fields removed in this change will fail to recreate.\n-- view public.season_summary will be DROP+CREATEd; any view body that destructures composite fields removed in this change will fail to recreate.\n-- Function/procedure signatures referencing recreated composites are not detected; if any exist, apply will fail with a clear PG error.",
+          "type": "type",
+          "operation": "recreate",
+          "path": "public.team_season_detail"
+        },
+        {
+          "sql": "DROP VIEW IF EXISTS season_summary RESTRICT;",
+          "type": "view",
+          "operation": "recreate",
+          "path": "public.season_summary"
+        },
+        {
+          "sql": "DROP VIEW IF EXISTS season_detail RESTRICT;",
+          "type": "view",
+          "operation": "recreate",
+          "path": "public.season_detail"
+        },
+        {
+          "sql": "ALTER TABLE team_season DROP COLUMN detail;",
+          "type": "table",
+          "operation": "recreate",
+          "path": "public.team_season.detail"
+        },
+        {
+          "sql": "DROP TYPE IF EXISTS team_season_detail RESTRICT;",
+          "type": "type",
+          "operation": "recreate",
+          "path": "public.team_season_detail"
+        },
+        {
+          "sql": "CREATE TYPE team_season_detail AS (home_wins smallint, home_losses smallint, last10 smallint);",
+          "type": "type",
+          "operation": "recreate",
+          "path": "public.team_season_detail"
+        },
+        {
+          "sql": "ALTER TABLE team_season ADD COLUMN detail team_season_detail;",
+          "type": "table",
+          "operation": "recreate",
+          "path": "public.team_season.detail"
+        },
+        {
+          "sql": "CREATE OR REPLACE VIEW season_detail AS\n SELECT season_id,\n    team_id,\n    detail\n   FROM team_season;",
+          "type": "view",
+          "operation": "recreate",
+          "path": "public.season_detail"
+        },
+        {
+          "sql": "CREATE OR REPLACE VIEW season_summary AS\n SELECT season_id,\n    count(*) AS team_count\n   FROM season_detail\n  GROUP BY season_id;",
+          "type": "view",
+          "operation": "recreate",
+          "path": "public.season_summary"
+        }
+      ]
+    }
+  ]
+}

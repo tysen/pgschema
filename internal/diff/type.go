@@ -38,8 +38,24 @@ func generateCreateTypesSQL(types []*ir.Type, targetSchema string, collector *di
 	}
 }
 
-// generateModifyTypesSQL generates ALTER TYPE statements
-func generateModifyTypesSQL(diffs []*typeDiff, targetSchema string, collector *diffCollector) {
+// generateModifyTypesSQL generates ALTER TYPE statements (and DROP+CREATE
+// cycles for composite types whose shape has changed).
+//
+// Composite shape changes are emitted as one combined block via
+// generateCompositeRecreateBlock — they share dependent objects (table
+// columns, views) and need a globally-consistent topological order, so
+// per-diff emission would duplicate or mis-order operations. The typeCtx,
+// colCtx, and viewCtx must already be computed by
+// findDependentObjectsForRecreatedTypes. They may be nil/empty when no
+// composite shape changes are present.
+func generateModifyTypesSQL(
+	diffs []*typeDiff,
+	targetSchema string,
+	collector *diffCollector,
+	typeCtx *dependentTypesContext,
+	colCtx *dependentColumnsContext,
+	viewCtx *dependentViewsContext,
+) {
 	for _, diff := range diffs {
 		switch diff.Old.Kind {
 		case ir.TypeKindEnum:
@@ -72,7 +88,15 @@ func generateModifyTypesSQL(diffs []*typeDiff, targetSchema string, collector *d
 					collector.collect(context, stmt)
 				}
 			}
+			// Composite type changes are emitted by the cascade block below,
+			// not in this loop.
 		}
+	}
+
+	// Emit one combined DROP+CREATE block covering every composite in the
+	// cascade closure (changed composites + transitively-dependent ones).
+	if !typeCtx.IsEmpty() {
+		generateCompositeRecreateBlock(typeCtx, colCtx, viewCtx, targetSchema, collector)
 	}
 }
 
@@ -291,8 +315,13 @@ func generateTypeSQL(typeObj *ir.Type, targetSchema string) string {
 	}
 }
 
-// typesEqual compares two types for equality
-func typesEqual(old, new *ir.Type) bool {
+// typesEqual compares two types for equality. targetSchema lets us normalize
+// schema-qualified data type names the same way columnsEqual does: composite
+// attribute types coming from a target-DB inspection often arrive unqualified
+// while the desired-state IR (built from a temporary schema and then
+// rewritten to the target schema) arrives qualified. Without normalization
+// the two would always look different.
+func typesEqual(old, new *ir.Type, targetSchema string) bool {
 	if old.Schema != new.Schema {
 		return false
 	}
@@ -316,13 +345,20 @@ func typesEqual(old, new *ir.Type) bool {
 		}
 
 	case ir.TypeKindComposite:
-		// For composite types, compare columns
+		// For composite types, compare columns positionally so that
+		// reordering attributes is reported as a change. Postgres has no
+		// in-place reorder for composite attributes, so a reorder is still a
+		// real DDL operation (DROP+CREATE) even though it is conceptually a
+		// no-op from the application's perspective.
 		if len(old.Columns) != len(new.Columns) {
 			return false
 		}
 		for i, col := range old.Columns {
 			newCol := new.Columns[i]
-			if col.Name != newCol.Name || col.DataType != newCol.DataType {
+			if col.Name != newCol.Name {
+				return false
+			}
+			if stripSchemaPrefix(col.DataType, targetSchema) != stripSchemaPrefix(newCol.DataType, targetSchema) {
 				return false
 			}
 		}
