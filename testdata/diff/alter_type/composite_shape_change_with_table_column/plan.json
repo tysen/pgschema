@@ -3,40 +3,40 @@
   "pgschema_version": "1.9.0",
   "created_at": "1970-01-01T00:00:00Z",
   "source_fingerprint": {
-    "hash": "6459add6f24455b4e383aad92db12c19ba181f22fbb015222fa606bdba20fd6c"
+    "hash": "dd0570ae4fb218aaf0f910395c337cf25c7248731dfc0469c0af920e230644ee"
   },
   "groups": [
     {
       "steps": [
         {
-          "sql": "-- WARNING: composite type shape change; DROP+CREATE is the only safe path.\n-- column public.team_season.detail data will be lost\n-- Function/procedure signatures referencing recreated composites are not detected; if any exist, apply will fail with a clear PG error.",
+          "sql": "-- WARNING: composite type shape change; DROP+CREATE is the only safe path.\n-- column public.widgets.detail data will be lost\n-- Function/procedure signatures referencing recreated types are not detected; if any exist, apply will fail with a clear PG error.",
           "type": "type",
           "operation": "recreate",
-          "path": "public.team_season_detail"
+          "path": "public.widget_metrics"
         },
         {
-          "sql": "ALTER TABLE team_season DROP COLUMN detail;",
+          "sql": "ALTER TABLE widgets DROP COLUMN detail;",
           "type": "table",
           "operation": "recreate",
-          "path": "public.team_season.detail"
+          "path": "public.widgets.detail"
         },
         {
-          "sql": "DROP TYPE IF EXISTS team_season_detail RESTRICT;",
+          "sql": "DROP TYPE IF EXISTS widget_metrics RESTRICT;",
           "type": "type",
           "operation": "recreate",
-          "path": "public.team_season_detail"
+          "path": "public.widget_metrics"
         },
         {
-          "sql": "CREATE TYPE team_season_detail AS (home_wins smallint, home_losses smallint, last10 smallint, streak smallint);",
+          "sql": "CREATE TYPE widget_metrics AS (count_a smallint, count_b smallint, count_x smallint, count_e smallint);",
           "type": "type",
           "operation": "recreate",
-          "path": "public.team_season_detail"
+          "path": "public.widget_metrics"
         },
         {
-          "sql": "ALTER TABLE team_season ADD COLUMN detail team_season_detail;",
+          "sql": "ALTER TABLE widgets ADD COLUMN detail widget_metrics;",
           "type": "table",
           "operation": "recreate",
-          "path": "public.team_season.detail"
+          "path": "public.widgets.detail"
         }
       ]
     }

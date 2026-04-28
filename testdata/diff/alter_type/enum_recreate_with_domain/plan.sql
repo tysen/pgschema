@@ -1,0 +1,17 @@
+-- WARNING: enum value removal/reorder requires DROP+CREATE in Postgres (no DROP VALUE / no reorder).
+-- enum public.task_status drops values ['archived']; any row holding one of these values will block apply (DROP TYPE … RESTRICT fails).
+-- domains public.task_status_d are also being DROP+CREATEd because their base type is being recreated.
+-- Function/procedure signatures referencing recreated types are not detected; if any exist, apply will fail with a clear PG error.
+
+DROP DOMAIN IF EXISTS task_status_d RESTRICT;
+
+DROP TYPE IF EXISTS task_status RESTRICT;
+
+CREATE TYPE task_status AS ENUM (
+    'pending',
+    'active',
+    'cancelled'
+);
+
+CREATE DOMAIN task_status_d AS public.task_status
+  NOT NULL;

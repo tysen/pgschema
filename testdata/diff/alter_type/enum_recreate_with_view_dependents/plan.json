@@ -1,0 +1,56 @@
+{
+  "version": "1.0.0",
+  "pgschema_version": "1.9.0",
+  "created_at": "1970-01-01T00:00:00Z",
+  "source_fingerprint": {
+    "hash": "aadc9aad7fa017bcc43747ddb7d9e963679b56da339daa7809701157113166db"
+  },
+  "groups": [
+    {
+      "steps": [
+        {
+          "sql": "-- WARNING: enum value removal/reorder requires DROP+CREATE in Postgres (no DROP VALUE / no reorder).\n-- enum public.task_status drops values ['archived']; any row holding one of these values will block apply (DROP TYPE … RESTRICT fails).\n-- column public.tasks.status data will be lost\n-- view public.tasks_view will be DROP+CREATEd; if its body references columns or fields removed by this change it will fail to recreate.\n-- Function/procedure signatures referencing recreated types are not detected; if any exist, apply will fail with a clear PG error.",
+          "type": "type",
+          "operation": "recreate",
+          "path": "public.task_status"
+        },
+        {
+          "sql": "DROP VIEW IF EXISTS tasks_view RESTRICT;",
+          "type": "view",
+          "operation": "recreate",
+          "path": "public.tasks_view"
+        },
+        {
+          "sql": "ALTER TABLE tasks DROP COLUMN status;",
+          "type": "table",
+          "operation": "recreate",
+          "path": "public.tasks.status"
+        },
+        {
+          "sql": "DROP TYPE IF EXISTS task_status RESTRICT;",
+          "type": "type",
+          "operation": "recreate",
+          "path": "public.task_status"
+        },
+        {
+          "sql": "CREATE TYPE task_status AS ENUM (\n    'pending',\n    'active',\n    'cancelled'\n);",
+          "type": "type",
+          "operation": "recreate",
+          "path": "public.task_status"
+        },
+        {
+          "sql": "ALTER TABLE tasks ADD COLUMN status task_status;",
+          "type": "table",
+          "operation": "recreate",
+          "path": "public.tasks.status"
+        },
+        {
+          "sql": "CREATE OR REPLACE VIEW tasks_view AS\n SELECT id,\n    status\n   FROM tasks;",
+          "type": "view",
+          "operation": "recreate",
+          "path": "public.tasks_view"
+        }
+      ]
+    }
+  ]
+}

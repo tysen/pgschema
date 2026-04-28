@@ -3,64 +3,64 @@
   "pgschema_version": "1.9.0",
   "created_at": "1970-01-01T00:00:00Z",
   "source_fingerprint": {
-    "hash": "bb8ab6a43ef2731827c0cbba7e28cf710a81e185e5b6b63d7a4bc5696203d802"
+    "hash": "d003a559800a4e02af397f0a4b5764a24fdae8b28817f89ac2cdd4c88527848f"
   },
   "groups": [
     {
       "steps": [
         {
-          "sql": "-- WARNING: composite type shape change; DROP+CREATE is the only safe path.\n-- column public.team_season.detail data will be lost\n-- view public.season_detail will be DROP+CREATEd; any view body that destructures composite fields removed in this change will fail to recreate.\n-- view public.season_summary will be DROP+CREATEd; any view body that destructures composite fields removed in this change will fail to recreate.\n-- Function/procedure signatures referencing recreated composites are not detected; if any exist, apply will fail with a clear PG error.",
+          "sql": "-- WARNING: composite type shape change; DROP+CREATE is the only safe path.\n-- column public.widgets.detail data will be lost\n-- view public.widget_summary will be DROP+CREATEd; if its body references columns or fields removed by this change it will fail to recreate.\n-- view public.widget_overview will be DROP+CREATEd; if its body references columns or fields removed by this change it will fail to recreate.\n-- Function/procedure signatures referencing recreated types are not detected; if any exist, apply will fail with a clear PG error.",
           "type": "type",
           "operation": "recreate",
-          "path": "public.team_season_detail"
+          "path": "public.widget_metrics"
         },
         {
-          "sql": "DROP VIEW IF EXISTS season_summary RESTRICT;",
+          "sql": "DROP VIEW IF EXISTS widget_overview RESTRICT;",
           "type": "view",
           "operation": "recreate",
-          "path": "public.season_summary"
+          "path": "public.widget_overview"
         },
         {
-          "sql": "DROP VIEW IF EXISTS season_detail RESTRICT;",
+          "sql": "DROP VIEW IF EXISTS widget_summary RESTRICT;",
           "type": "view",
           "operation": "recreate",
-          "path": "public.season_detail"
+          "path": "public.widget_summary"
         },
         {
-          "sql": "ALTER TABLE team_season DROP COLUMN detail;",
+          "sql": "ALTER TABLE widgets DROP COLUMN detail;",
           "type": "table",
           "operation": "recreate",
-          "path": "public.team_season.detail"
+          "path": "public.widgets.detail"
         },
         {
-          "sql": "DROP TYPE IF EXISTS team_season_detail RESTRICT;",
+          "sql": "DROP TYPE IF EXISTS widget_metrics RESTRICT;",
           "type": "type",
           "operation": "recreate",
-          "path": "public.team_season_detail"
+          "path": "public.widget_metrics"
         },
         {
-          "sql": "CREATE TYPE team_season_detail AS (home_wins smallint, home_losses smallint, last10 smallint);",
+          "sql": "CREATE TYPE widget_metrics AS (count_a smallint, count_b smallint, count_x smallint);",
           "type": "type",
           "operation": "recreate",
-          "path": "public.team_season_detail"
+          "path": "public.widget_metrics"
         },
         {
-          "sql": "ALTER TABLE team_season ADD COLUMN detail team_season_detail;",
+          "sql": "ALTER TABLE widgets ADD COLUMN detail widget_metrics;",
           "type": "table",
           "operation": "recreate",
-          "path": "public.team_season.detail"
+          "path": "public.widgets.detail"
         },
         {
-          "sql": "CREATE OR REPLACE VIEW season_detail AS\n SELECT season_id,\n    team_id,\n    detail\n   FROM team_season;",
+          "sql": "CREATE OR REPLACE VIEW widget_summary AS\n SELECT region_id,\n    area_id,\n    detail\n   FROM widgets;",
           "type": "view",
           "operation": "recreate",
-          "path": "public.season_detail"
+          "path": "public.widget_summary"
         },
         {
-          "sql": "CREATE OR REPLACE VIEW season_summary AS\n SELECT season_id,\n    count(*) AS team_count\n   FROM season_detail\n  GROUP BY season_id;",
+          "sql": "CREATE OR REPLACE VIEW widget_overview AS\n SELECT region_id,\n    count(*) AS team_count\n   FROM widget_summary\n  GROUP BY region_id;",
           "type": "view",
           "operation": "recreate",
-          "path": "public.season_summary"
+          "path": "public.widget_overview"
         }
       ]
     }

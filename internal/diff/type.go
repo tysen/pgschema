@@ -2,6 +2,7 @@ package diff
 
 import (
 	"fmt"
+	"slices"
 	"sort"
 	"strings"
 
@@ -38,16 +39,16 @@ func generateCreateTypesSQL(types []*ir.Type, targetSchema string, collector *di
 	}
 }
 
-// generateModifyTypesSQL generates ALTER TYPE statements (and DROP+CREATE
-// cycles for composite types whose shape has changed).
+// generateModifyTypesSQL generates ALTER TYPE / ALTER DOMAIN statements and
+// DROP+CREATE cycles for types requiring recreate (composite shape change or
+// enum non-additive change).
 //
-// Composite shape changes are emitted as one combined block via
-// generateCompositeRecreateBlock — they share dependent objects (table
-// columns, views) and need a globally-consistent topological order, so
-// per-diff emission would duplicate or mis-order operations. The typeCtx,
-// colCtx, and viewCtx must already be computed by
-// findDependentObjectsForRecreatedTypes. They may be nil/empty when no
-// composite shape changes are present.
+// Recreates are emitted as one combined block via generateTypeRecreateBlock —
+// they share dependent objects (table columns, views) and need a globally-
+// consistent topological order, so per-diff emission would duplicate or
+// mis-order operations. The typeCtx, colCtx, and viewCtx must already be
+// computed by findDependentObjectsForRecreatedTypes. They may be nil/empty
+// when no recreates are present.
 func generateModifyTypesSQL(
 	diffs []*typeDiff,
 	targetSchema string,
@@ -59,8 +60,9 @@ func generateModifyTypesSQL(
 	for _, diff := range diffs {
 		switch diff.Old.Kind {
 		case ir.TypeKindEnum:
-			// ENUM types can be modified by adding values
-			if diff.New.Kind == ir.TypeKindEnum {
+			// ENUM types: ALTER TYPE ADD VALUE for the additive case;
+			// otherwise the recreate block emits the DDL.
+			if diff.New.Kind == ir.TypeKindEnum && isEnumAddOnly(diff.Old, diff.New) {
 				alterStatements := generateAlterTypeEnumStatements(diff.Old, diff.New, targetSchema)
 				for _, stmt := range alterStatements {
 					context := &diffContext{
@@ -93,11 +95,62 @@ func generateModifyTypesSQL(
 		}
 	}
 
-	// Emit one combined DROP+CREATE block covering every composite in the
-	// cascade closure (changed composites + transitively-dependent ones).
+	// Emit one combined DROP+CREATE block covering every type in the
+	// recreate closure (changed composites/enums + transitively-dependent
+	// composites + domains over closure types).
 	if !typeCtx.IsEmpty() {
-		generateCompositeRecreateBlock(typeCtx, colCtx, viewCtx, targetSchema, collector)
+		generateTypeRecreateBlock(typeCtx, colCtx, viewCtx, targetSchema, collector)
 	}
+}
+
+// isEnumAddOnly reports whether transforming oldType into newType is
+// representable as a sequence of ALTER TYPE ADD VALUE statements only.
+// True iff every value in old is present in new in the same relative order
+// — i.e. removing values, reordering, or renaming all return false and route
+// through the recreate path.
+//
+// An empty old enum returns false: the existing ADD VALUE emitter cannot
+// build a valid BEFORE/AFTER clause without an existing anchor value.
+// Postgres rejects empty enums in practice, but the IR permits them.
+func isEnumAddOnly(oldType, newType *ir.Type) bool {
+	if oldType == nil || newType == nil {
+		return false
+	}
+	if len(oldType.EnumValues) == 0 {
+		return false
+	}
+	oldSet := make(map[string]struct{}, len(oldType.EnumValues))
+	for _, v := range oldType.EnumValues {
+		oldSet[v] = struct{}{}
+	}
+	filtered := make([]string, 0, len(oldType.EnumValues))
+	for _, v := range newType.EnumValues {
+		if _, ok := oldSet[v]; ok {
+			filtered = append(filtered, v)
+		}
+	}
+	return slices.Equal(filtered, oldType.EnumValues)
+}
+
+// typeNeedsRecreate reports whether a typeDiff requires DROP+CREATE rather
+// than in-place ALTER. True for composite shape change and enum non-additive
+// change. Domains are always handled by generateAlterDomainStatements; their
+// recreates only happen transitively when their base type recreates, which
+// is decided inside the closure expansion, not here.
+func typeNeedsRecreate(diff *typeDiff) bool {
+	if diff == nil || diff.Old == nil || diff.New == nil {
+		return false
+	}
+	if diff.Old.Kind != diff.New.Kind {
+		return false
+	}
+	switch diff.Old.Kind {
+	case ir.TypeKindComposite:
+		return true
+	case ir.TypeKindEnum:
+		return !isEnumAddOnly(diff.Old, diff.New)
+	}
+	return false
 }
 
 // generateDropTypesSQL generates DROP TYPE statements

@@ -388,6 +388,24 @@ func FromJSON(jsonData []byte) (*Plan, error) {
 
 // ========== PRIVATE METHODS ==========
 
+// stepOpRank decides which operation "wins" when the same object path has
+// multiple steps in a plan. drop > recreate > alter > create. The intent:
+// a path that's both altered and dropped collapses to drop; a path that's
+// recreated wins over a stray alter (e.g. comment) on the same path.
+func stepOpRank(op string) int {
+	switch op {
+	case "drop":
+		return 4
+	case "recreate":
+		return 3
+	case "alter":
+		return 2
+	case "create":
+		return 1
+	}
+	return 0
+}
+
 // calculateSummaryFromSteps calculates summary statistics from the plan diffs
 func (p *Plan) calculateSummaryFromSteps() PlanSummary {
 	summary := PlanSummary{
@@ -419,8 +437,11 @@ func (p *Plan) calculateSummaryFromSteps() PlanSummary {
 	// These should be counted as modifications, not adds
 	materializedViewsRecreating := make(map[string]bool) // materialized_view_path -> true
 
-	// Track non-table/non-view/non-materialized-view operations
-	nonTableOperations := make(map[string][]string) // objType -> []operations
+	// Track non-table/non-view/non-materialized-view operations.
+	// Keyed by path so multiple steps for the same object (e.g. a DROP TYPE
+	// + CREATE TYPE pair emitted as two steps for one type recreate) count
+	// as a single change. Mirrors how tableOperations / viewOperations dedupe.
+	nonTableOperations := make(map[string]map[string]string) // objType -> path -> operation
 
 	// Use source diffs for summary calculation if available,
 	// otherwise use steps metadata (for plans loaded from JSON)
@@ -501,8 +522,20 @@ func (p *Plan) calculateSummaryFromSteps() PlanSummary {
 				}
 			}
 		} else {
-			// For non-table/non-view objects, track each operation
-			nonTableOperations[stepObjTypeStr] = append(nonTableOperations[stepObjTypeStr], step.Operation)
+			// For non-table/non-view objects, dedupe by path. Recreate
+			// emits multiple steps per object (warning, DROP, CREATE);
+			// they should count as one change.
+			byPath := nonTableOperations[stepObjTypeStr]
+			if byPath == nil {
+				byPath = make(map[string]string)
+				nonTableOperations[stepObjTypeStr] = byPath
+			}
+			// Prefer recreate over alter when both are seen, so an object
+			// that gets a comment alter and then a recreate counts as a
+			// single recreate (which is itself a modification).
+			if existing, ok := byPath[step.Path]; !ok || stepOpRank(step.Operation) > stepOpRank(existing) {
+				byPath[step.Path] = step.Operation
+			}
 		}
 	}
 
@@ -529,7 +562,7 @@ func (p *Plan) calculateSummaryFromSteps() PlanSummary {
 			case "create":
 				stats.Add++
 				summary.Add++
-			case "alter":
+			case "alter", "recreate":
 				stats.Change++
 				summary.Change++
 			case "drop":
@@ -563,7 +596,7 @@ func (p *Plan) calculateSummaryFromSteps() PlanSummary {
 			case "create":
 				stats.Add++
 				summary.Add++
-			case "alter":
+			case "alter", "recreate":
 				stats.Change++
 				summary.Change++
 			case "drop":
@@ -614,17 +647,20 @@ func (p *Plan) calculateSummaryFromSteps() PlanSummary {
 		summary.ByType["materialized views"] = stats
 	}
 
-	// Count non-table/non-view/non-materialized-view operations (each operation counted individually)
-	for objType, operations := range nonTableOperations {
+	// Count non-table/non-view/non-materialized-view operations.
+	// Per-path map ensures one change per object even when the recreate
+	// pipeline emits multiple steps (warning + DROP + CREATE) at the same
+	// path.
+	for objType, byPath := range nonTableOperations {
 		// Normalize object type to match the Type constants (replace underscores with spaces)
 		normalizedObjType := strings.ReplaceAll(objType, "_", " ")
 		stats := summary.ByType[normalizedObjType]
-		for _, operation := range operations {
+		for _, operation := range byPath {
 			switch operation {
 			case "create":
 				stats.Add++
 				summary.Add++
-			case "alter":
+			case "alter", "recreate":
 				stats.Change++
 				summary.Change++
 			case "drop":
@@ -1039,44 +1075,37 @@ func (p *Plan) writeMaterializedViewChanges(summary *strings.Builder, c *color.C
 	}
 }
 
-// writeNonTableChanges handles non-table objects with the original logic
+// writeNonTableChanges handles non-table objects with the original logic.
+// Multiple steps for the same object path (e.g. recreate emits warning +
+// DROP + CREATE) are collapsed to a single line — the highest-rank
+// operation wins (see stepOpRank).
 func (p *Plan) writeNonTableChanges(summary *strings.Builder, objType string, c *color.Color) {
-	// Collect changes for this object type
-	var changes []struct {
-		operation string
-		path      string
-	}
+	byPath := make(map[string]string) // path -> operation
 
-	// Use source diffs for summary calculation
 	for _, step := range p.SourceDiffs {
-		// Normalize object type
 		stepObjTypeStr := step.Type.String()
 		if !strings.HasSuffix(stepObjTypeStr, "s") {
 			stepObjTypeStr += "s"
 		}
-		// Normalize underscores to spaces to match Type constants
 		stepObjTypeStr = strings.ReplaceAll(stepObjTypeStr, "_", " ")
-
-		if stepObjTypeStr == objType {
-			changes = append(changes, struct {
-				operation string
-				path      string
-			}{
-				operation: step.Operation.String(),
-				path:      step.Path,
-			})
+		if stepObjTypeStr != objType {
+			continue
+		}
+		op := step.Operation.String()
+		if existing, ok := byPath[step.Path]; !ok || stepOpRank(op) > stepOpRank(existing) {
+			byPath[step.Path] = op
 		}
 	}
 
-	// Sort changes by path for consistent output
-	sort.Slice(changes, func(i, j int) bool {
-		return changes[i].path < changes[j].path
-	})
+	paths := make([]string, 0, len(byPath))
+	for p := range byPath {
+		paths = append(paths, p)
+	}
+	sort.Strings(paths)
 
-	// Write changes with appropriate symbols
-	for _, change := range changes {
+	for _, path := range paths {
 		var symbol string
-		switch change.operation {
+		switch byPath[path] {
 		case "create":
 			symbol = c.PlanSymbol("add")
 		case "alter":
@@ -1086,8 +1115,7 @@ func (p *Plan) writeNonTableChanges(summary *strings.Builder, objType string, c 
 		default:
 			symbol = c.PlanSymbol("change")
 		}
-
-		fmt.Fprintf(summary, "  %s %s\n", symbol, getLastPathComponent(change.path))
+		fmt.Fprintf(summary, "  %s %s\n", symbol, getLastPathComponent(path))
 	}
 }
 

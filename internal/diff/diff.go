@@ -1497,38 +1497,26 @@ func (d *ddlDiff) generatePreDropMaterializedViewsSQL(targetSchema string, colle
 		}
 	}
 
-	// Pre-drop materialized views that depend on composite types whose shape
-	// is changing. The composite recreate path itself only handles regular
-	// views; matviews need to be torn down before generateModifyTablesSQL
-	// runs (which may try to drop the column) and recreated through the
-	// normal modify-views pipeline.
+	// Pre-drop materialized views that depend on types being recreated
+	// (composite shape change, enum non-additive change, domain over a
+	// recreated base). The recreate path itself only handles regular views;
+	// matviews need to be torn down before generateModifyTablesSQL runs
+	// (which may try to drop the column) and recreated through the normal
+	// modify-views pipeline.
 	if len(d.modifiedTypes) > 0 {
-		// Build the set of composite types that will be recreated.
-		recreatedComposites := make(map[string]struct{})
-		for _, td := range d.modifiedTypes {
-			if td.Old == nil || td.New == nil {
-				continue
-			}
-			if td.Old.Kind == ir.TypeKindComposite && td.New.Kind == ir.TypeKindComposite {
-				recreatedComposites[td.New.Schema+"."+td.New.Name] = struct{}{}
-			}
-		}
-		if len(recreatedComposites) > 0 {
-			// Find tables whose columns are typed as a recreated composite.
-			// A matview that selects from such a table needs to be pre-dropped.
-			tablesUsingComposite := make(map[string]*ir.Table)
+		recreatedTypes, _ := computeRecreatedTypeClosure(d.allNewTypes, d.modifiedTypes)
+		if len(recreatedTypes) > 0 {
+			// Find tables whose columns are typed as any recreated type. A
+			// matview that selects from such a table needs to be pre-dropped.
+			tablesUsingType := make(map[string]*ir.Table)
 			for _, table := range d.allNewTables {
 				if table == nil {
 					continue
 				}
 				for _, col := range table.Columns {
-					for typeKey := range recreatedComposites {
-						parts := strings.SplitN(typeKey, ".", 2)
-						if len(parts) != 2 {
-							continue
-						}
-						if columnReferencesCompositeType(col, parts[0], parts[1]) {
-							tablesUsingComposite[table.Schema+"."+table.Name] = table
+					for _, rt := range recreatedTypes {
+						if columnReferencesType(col, rt.Schema, rt.Name) {
+							tablesUsingType[table.Schema+"."+table.Name] = table
 							break
 						}
 					}
@@ -1544,10 +1532,10 @@ func (d *ddlDiff) generatePreDropMaterializedViewsSQL(targetSchema string, colle
 				modifiedViewsByKey[vd.New.Schema+"."+vd.New.Name] = vd
 			}
 
-			// Walk every matview in the new state. We need to consider matviews
-			// even when they have no in-place modification, because a composite
-			// recreate invalidates the matview's stored column type OID even
-			// when its body text is unchanged.
+			// Walk every matview in the new state. Consider matviews even when
+			// they have no in-place modification — a type recreate invalidates
+			// the matview's stored column type OID even when its body text is
+			// unchanged.
 			matviewKeys := make([]string, 0, len(d.allNewViews))
 			for key, view := range d.allNewViews {
 				if view != nil && view.Materialized {
@@ -1562,7 +1550,7 @@ func (d *ddlDiff) generatePreDropMaterializedViewsSQL(targetSchema string, colle
 					continue
 				}
 				depends := false
-				for _, table := range tablesUsingComposite {
+				for _, table := range tablesUsingType {
 					if viewDependsOnTable(view, table.Schema, table.Name) {
 						depends = true
 						break
@@ -1834,12 +1822,12 @@ func (d *ddlDiff) generateModifySQL(targetSchema string, collector *diffCollecto
 	// Track views recreated as dependencies to avoid duplicate processing
 	recreatedViews := make(map[string]bool)
 
-	// Mark views that were already recreated as part of composite-type
-	// recreation so the view modify pass skips them. The composite path
-	// emits both DROP and CREATE for these views; processing them again
-	// would duplicate the SQL.
+	// Mark views that were already recreated as part of type recreation so
+	// the view modify pass skips them. The recreate path emits both DROP
+	// and CREATE for these views; processing them again would duplicate
+	// the SQL.
 	if typeViewCtx != nil {
-		for _, v := range typeViewCtx.GetDependents(compositeRecreateBlockKey) {
+		for _, v := range typeViewCtx.GetDependents(typeRecreateBlockKey) {
 			if v == nil {
 				continue
 			}

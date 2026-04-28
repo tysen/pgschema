@@ -1,13 +1,13 @@
-DROP MATERIALIZED VIEW season_detail_mv RESTRICT;
+DROP MATERIALIZED VIEW widget_summary_mv RESTRICT;
 -- WARNING: composite type shape change; DROP+CREATE is the only safe path.
--- column public.team_season.detail data will be lost
--- Function/procedure signatures referencing recreated composites are not detected; if any exist, apply will fail with a clear PG error.
-ALTER TABLE team_season DROP COLUMN detail;
-DROP TYPE IF EXISTS team_season_detail RESTRICT;
-CREATE TYPE team_season_detail AS (home_wins smallint, home_losses smallint, last10 smallint);
-ALTER TABLE team_season ADD COLUMN detail team_season_detail;
-CREATE MATERIALIZED VIEW IF NOT EXISTS season_detail_mv AS
- SELECT season_id,
-    team_id,
+-- column public.widgets.detail data will be lost
+-- Function/procedure signatures referencing recreated types are not detected; if any exist, apply will fail with a clear PG error.
+ALTER TABLE widgets DROP COLUMN detail;
+DROP TYPE IF EXISTS widget_metrics RESTRICT;
+CREATE TYPE widget_metrics AS (count_a smallint, count_b smallint, count_x smallint);
+ALTER TABLE widgets ADD COLUMN detail widget_metrics;
+CREATE MATERIALIZED VIEW IF NOT EXISTS widget_summary_mv AS
+ SELECT region_id,
+    area_id,
     detail
-   FROM team_season;
+   FROM widgets;

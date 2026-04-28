@@ -1,0 +1,12 @@
+Plan: 1 to modify.
+
+Summary by type:
+  types: 1 to modify
+
+Types:
+  ~ priority
+
+DDL to be executed:
+--------------------------------------------------
+
+ALTER TYPE priority ADD VALUE 'trivial' BEFORE 'low';

@@ -1,29 +1,29 @@
 -- WARNING: composite type shape change; DROP+CREATE is the only safe path.
--- column public.team_season.detail data will be lost
--- view public.season_detail will be DROP+CREATEd; any view body that destructures composite fields removed in this change will fail to recreate.
--- view public.season_summary will be DROP+CREATEd; any view body that destructures composite fields removed in this change will fail to recreate.
--- Function/procedure signatures referencing recreated composites are not detected; if any exist, apply will fail with a clear PG error.
+-- column public.widgets.detail data will be lost
+-- view public.widget_summary will be DROP+CREATEd; if its body references columns or fields removed by this change it will fail to recreate.
+-- view public.widget_overview will be DROP+CREATEd; if its body references columns or fields removed by this change it will fail to recreate.
+-- Function/procedure signatures referencing recreated types are not detected; if any exist, apply will fail with a clear PG error.
 
-DROP VIEW IF EXISTS season_summary RESTRICT;
+DROP VIEW IF EXISTS widget_overview RESTRICT;
 
-DROP VIEW IF EXISTS season_detail RESTRICT;
+DROP VIEW IF EXISTS widget_summary RESTRICT;
 
-ALTER TABLE team_season DROP COLUMN detail;
+ALTER TABLE widgets DROP COLUMN detail;
 
-DROP TYPE IF EXISTS team_season_detail RESTRICT;
+DROP TYPE IF EXISTS widget_metrics RESTRICT;
 
-CREATE TYPE team_season_detail AS (home_wins smallint, home_losses smallint, last10 smallint);
+CREATE TYPE widget_metrics AS (count_a smallint, count_b smallint, count_x smallint);
 
-ALTER TABLE team_season ADD COLUMN detail team_season_detail;
+ALTER TABLE widgets ADD COLUMN detail widget_metrics;
 
-CREATE OR REPLACE VIEW season_detail AS
- SELECT season_id,
-    team_id,
+CREATE OR REPLACE VIEW widget_summary AS
+ SELECT region_id,
+    area_id,
     detail
-   FROM team_season;
+   FROM widgets;
 
-CREATE OR REPLACE VIEW season_summary AS
- SELECT season_id,
+CREATE OR REPLACE VIEW widget_overview AS
+ SELECT region_id,
     count(*) AS team_count
-   FROM season_detail
-  GROUP BY season_id;
+   FROM widget_summary
+  GROUP BY region_id;

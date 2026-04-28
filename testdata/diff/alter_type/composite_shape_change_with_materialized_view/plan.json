@@ -3,52 +3,52 @@
   "pgschema_version": "1.9.0",
   "created_at": "1970-01-01T00:00:00Z",
   "source_fingerprint": {
-    "hash": "556696b17142c44a1d1afc17657919bed912b6dc8e919481f3aa278f660ab114"
+    "hash": "2c5812b67d58031f07e9ec930b2fe3ca00fd420cbe3016eccb2f8d2e57fff000"
   },
   "groups": [
     {
       "steps": [
         {
-          "sql": "DROP MATERIALIZED VIEW season_detail_mv RESTRICT;",
+          "sql": "DROP MATERIALIZED VIEW widget_summary_mv RESTRICT;",
           "type": "materialized_view",
           "operation": "recreate",
-          "path": "public.season_detail_mv"
+          "path": "public.widget_summary_mv"
         },
         {
-          "sql": "-- WARNING: composite type shape change; DROP+CREATE is the only safe path.\n-- column public.team_season.detail data will be lost\n-- Function/procedure signatures referencing recreated composites are not detected; if any exist, apply will fail with a clear PG error.",
+          "sql": "-- WARNING: composite type shape change; DROP+CREATE is the only safe path.\n-- column public.widgets.detail data will be lost\n-- Function/procedure signatures referencing recreated types are not detected; if any exist, apply will fail with a clear PG error.",
           "type": "type",
           "operation": "recreate",
-          "path": "public.team_season_detail"
+          "path": "public.widget_metrics"
         },
         {
-          "sql": "ALTER TABLE team_season DROP COLUMN detail;",
+          "sql": "ALTER TABLE widgets DROP COLUMN detail;",
           "type": "table",
           "operation": "recreate",
-          "path": "public.team_season.detail"
+          "path": "public.widgets.detail"
         },
         {
-          "sql": "DROP TYPE IF EXISTS team_season_detail RESTRICT;",
+          "sql": "DROP TYPE IF EXISTS widget_metrics RESTRICT;",
           "type": "type",
           "operation": "recreate",
-          "path": "public.team_season_detail"
+          "path": "public.widget_metrics"
         },
         {
-          "sql": "CREATE TYPE team_season_detail AS (home_wins smallint, home_losses smallint, last10 smallint);",
+          "sql": "CREATE TYPE widget_metrics AS (count_a smallint, count_b smallint, count_x smallint);",
           "type": "type",
           "operation": "recreate",
-          "path": "public.team_season_detail"
+          "path": "public.widget_metrics"
         },
         {
-          "sql": "ALTER TABLE team_season ADD COLUMN detail team_season_detail;",
+          "sql": "ALTER TABLE widgets ADD COLUMN detail widget_metrics;",
           "type": "table",
           "operation": "recreate",
-          "path": "public.team_season.detail"
+          "path": "public.widgets.detail"
         },
         {
-          "sql": "CREATE MATERIALIZED VIEW IF NOT EXISTS season_detail_mv AS\n SELECT season_id,\n    team_id,\n    detail\n   FROM team_season;",
+          "sql": "CREATE MATERIALIZED VIEW IF NOT EXISTS widget_summary_mv AS\n SELECT region_id,\n    area_id,\n    detail\n   FROM widgets;",
           "type": "materialized_view",
           "operation": "create",
-          "path": "public.season_detail_mv"
+          "path": "public.widget_summary_mv"
         }
       ]
     }

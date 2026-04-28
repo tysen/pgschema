@@ -19,26 +19,26 @@ func makeComposite(schema, name string, attrs ...string) *ir.Type {
 	return &ir.Type{Schema: schema, Name: name, Kind: ir.TypeKindComposite, Columns: cols}
 }
 
-func TestColumnReferencesCompositeType(t *testing.T) {
+func TestColumnReferencesType(t *testing.T) {
 	tests := []struct {
 		dataType string
 		schema   string
 		typeName string
 		want     bool
 	}{
-		{"team_season_detail", "public", "team_season_detail", true},
-		{"public.team_season_detail", "public", "team_season_detail", true},
-		{"team_season_detail[]", "public", "team_season_detail", true},
-		{"PUBLIC.Team_Season_Detail", "public", "team_season_detail", true},
-		{"team_season_summary", "public", "team_season_detail", false},
-		{"", "public", "team_season_detail", false},
-		{"other.team_season_detail", "public", "team_season_detail", false},
+		{"widget_metrics", "public", "widget_metrics", true},
+		{"public.widget_metrics", "public", "widget_metrics", true},
+		{"widget_metrics[]", "public", "widget_metrics", true},
+		{"PUBLIC.Widget_Metrics", "public", "widget_metrics", true},
+		{"team_widget_overview", "public", "widget_metrics", false},
+		{"", "public", "widget_metrics", false},
+		{"other.widget_metrics", "public", "widget_metrics", false},
 	}
 	for _, tc := range tests {
 		col := &ir.Column{Name: "x", DataType: tc.dataType}
-		got := columnReferencesCompositeType(col, tc.schema, tc.typeName)
+		got := columnReferencesType(col, tc.schema, tc.typeName)
 		if got != tc.want {
-			t.Errorf("columnReferencesCompositeType(%q, %q, %q) = %v, want %v",
+			t.Errorf("columnReferencesType(%q, %q, %q) = %v, want %v",
 				tc.dataType, tc.schema, tc.typeName, got, tc.want)
 		}
 	}
@@ -79,22 +79,22 @@ func TestIsCompositeReorderOnly(t *testing.T) {
 }
 
 func TestFindDependentObjectsForRecreatedTypes_TableColumn(t *testing.T) {
-	composite := makeComposite("public", "team_season_detail",
+	composite := makeComposite("public", "widget_metrics",
 		"a", "integer",
 	)
-	newComposite := makeComposite("public", "team_season_detail",
+	newComposite := makeComposite("public", "widget_metrics",
 		"b", "integer",
 	)
 	table := &ir.Table{
 		Schema: "public",
-		Name:   "team_season",
+		Name:   "widgets",
 		Columns: []*ir.Column{
 			{Name: "id", DataType: "integer"},
-			{Name: "detail", DataType: "team_season_detail"},
+			{Name: "detail", DataType: "widget_metrics"},
 		},
 	}
-	types := map[string]*ir.Type{"public.team_season_detail": newComposite}
-	tables := map[string]*ir.Table{"public.team_season": table}
+	types := map[string]*ir.Type{"public.widget_metrics": newComposite}
+	tables := map[string]*ir.Table{"public.widgets": table}
 	views := map[string]*ir.View{}
 	diffs := []*typeDiff{{Old: composite, New: newComposite}}
 
@@ -107,39 +107,39 @@ func TestFindDependentObjectsForRecreatedTypes_TableColumn(t *testing.T) {
 	if len(got) != 1 {
 		t.Fatalf("expected 1 dependent column, got %d", len(got))
 	}
-	if got[0].Column.Name != "detail" || got[0].Table.Name != "team_season" {
+	if got[0].Column.Name != "detail" || got[0].Table.Name != "widgets" {
 		t.Errorf("unexpected dependent column: %+v", got[0])
 	}
-	if len(viewCtx.GetDependents(compositeRecreateBlockKey)) != 0 {
+	if len(viewCtx.GetDependents(typeRecreateBlockKey)) != 0 {
 		t.Errorf("expected no dependent views")
 	}
 }
 
 func TestFindDependentObjectsForRecreatedTypes_ViewDependents(t *testing.T) {
-	composite := makeComposite("public", "team_season_detail", "a", "integer")
-	newComposite := makeComposite("public", "team_season_detail", "b", "integer")
+	composite := makeComposite("public", "widget_metrics", "a", "integer")
+	newComposite := makeComposite("public", "widget_metrics", "b", "integer")
 	table := &ir.Table{
 		Schema: "public",
-		Name:   "team_season",
+		Name:   "widgets",
 		Columns: []*ir.Column{
-			{Name: "detail", DataType: "team_season_detail"},
+			{Name: "detail", DataType: "widget_metrics"},
 		},
 	}
 	leafView := &ir.View{
 		Schema:     "public",
-		Name:       "season_detail",
-		Definition: "SELECT detail FROM team_season",
+		Name:       "widget_summary",
+		Definition: "SELECT detail FROM widgets",
 	}
 	transitiveView := &ir.View{
 		Schema:     "public",
-		Name:       "season_summary",
-		Definition: "SELECT count(*) FROM season_detail",
+		Name:       "widget_overview",
+		Definition: "SELECT count(*) FROM widget_summary",
 	}
-	types := map[string]*ir.Type{"public.team_season_detail": newComposite}
-	tables := map[string]*ir.Table{"public.team_season": table}
+	types := map[string]*ir.Type{"public.widget_metrics": newComposite}
+	tables := map[string]*ir.Table{"public.widgets": table}
 	views := map[string]*ir.View{
-		"public.season_detail":  leafView,
-		"public.season_summary": transitiveView,
+		"public.widget_summary":  leafView,
+		"public.widget_overview": transitiveView,
 	}
 	diffs := []*typeDiff{{Old: composite, New: newComposite}}
 
@@ -148,70 +148,70 @@ func TestFindDependentObjectsForRecreatedTypes_ViewDependents(t *testing.T) {
 	if len(colCtx.GetAll()) != 1 {
 		t.Errorf("expected 1 dependent column")
 	}
-	deps := viewCtx.GetDependents(compositeRecreateBlockKey)
+	deps := viewCtx.GetDependents(typeRecreateBlockKey)
 	if len(deps) != 2 {
 		t.Fatalf("expected 2 dependent views (direct + transitive), got %d", len(deps))
 	}
 	// Topo order: leaf first, dependent of leaf second.
-	if deps[0].Name != "season_detail" || deps[1].Name != "season_summary" {
+	if deps[0].Name != "widget_summary" || deps[1].Name != "widget_overview" {
 		t.Errorf("unexpected topo order: %s, %s", deps[0].Name, deps[1].Name)
 	}
 }
 
 func TestFindDependentObjectsForRecreatedTypes_NoMatviewsInViewCtx(t *testing.T) {
-	composite := makeComposite("public", "team_season_detail", "a", "integer")
-	newComposite := makeComposite("public", "team_season_detail", "b", "integer")
+	composite := makeComposite("public", "widget_metrics", "a", "integer")
+	newComposite := makeComposite("public", "widget_metrics", "b", "integer")
 	table := &ir.Table{
 		Schema: "public",
-		Name:   "team_season",
+		Name:   "widgets",
 		Columns: []*ir.Column{
-			{Name: "detail", DataType: "team_season_detail"},
+			{Name: "detail", DataType: "widget_metrics"},
 		},
 	}
 	matview := &ir.View{
 		Schema:       "public",
-		Name:         "season_detail_mv",
+		Name:         "widget_summary_mv",
 		Materialized: true,
-		Definition:   "SELECT detail FROM team_season",
+		Definition:   "SELECT detail FROM widgets",
 	}
-	types := map[string]*ir.Type{"public.team_season_detail": newComposite}
-	tables := map[string]*ir.Table{"public.team_season": table}
+	types := map[string]*ir.Type{"public.widget_metrics": newComposite}
+	tables := map[string]*ir.Table{"public.widgets": table}
 	views := map[string]*ir.View{
-		"public.season_detail_mv": matview,
+		"public.widget_summary_mv": matview,
 	}
 	diffs := []*typeDiff{{Old: composite, New: newComposite}}
 
 	_, _, viewCtx := findDependentObjectsForRecreatedTypes(types, tables, views, diffs)
-	if len(viewCtx.GetDependents(compositeRecreateBlockKey)) != 0 {
+	if len(viewCtx.GetDependents(typeRecreateBlockKey)) != 0 {
 		t.Errorf("matviews should be filtered from the view-cascade context (handled in pre-drop instead)")
 	}
 }
 
 // TestFindDependentObjectsForRecreatedTypes_NestedClosure verifies the
-// composite-of-composite recursion: when fan_stats changes shape, types that
-// have fan_stats as an attribute (like fan_detail_season) must also be
+// composite-of-composite recursion: when point_data changes shape, types that
+// have point_data as an attribute (like region_data) must also be
 // pulled into the recreate closure even though their own shape didn't
 // change.
 func TestFindDependentObjectsForRecreatedTypes_NestedClosure(t *testing.T) {
-	oldFanStats := makeComposite("public", "fan_stats", "goals", "real")
-	newFanStats := makeComposite("public", "fan_stats", "goals", "real", "assists", "real")
-	// fan_detail_season nests fan_stats — it must be recreated when fan_stats
+	oldFanStats := makeComposite("public", "point_data", "score_a", "real")
+	newFanStats := makeComposite("public", "point_data", "score_a", "real", "score_b", "real")
+	// region_data nests point_data — it must be recreated when point_data
 	// is recreated, even though its own shape is unchanged.
-	fanDetailSeason := makeComposite("public", "fan_detail_season",
-		"season_id", "integer",
-		"stats", "fan_stats",
+	fanDetailSeason := makeComposite("public", "region_data",
+		"region_id", "integer",
+		"stats", "point_data",
 	)
-	// transitively, anything nesting fan_detail_season also gets pulled in
-	fanDetailGameTeam := makeComposite("public", "fan_detail_game_team",
-		"detail", "fan_detail_season",
+	// transitively, anything nesting region_data also gets pulled in
+	fanDetailGameTeam := makeComposite("public", "report_data",
+		"detail", "region_data",
 	)
 	// unrelated composite — must NOT be in the closure
 	unrelated := makeComposite("public", "unrelated", "x", "integer")
 
 	types := map[string]*ir.Type{
-		"public.fan_stats":             newFanStats,
-		"public.fan_detail_season":     fanDetailSeason,
-		"public.fan_detail_game_team":  fanDetailGameTeam,
+		"public.point_data":             newFanStats,
+		"public.region_data":     fanDetailSeason,
+		"public.report_data":  fanDetailGameTeam,
 		"public.unrelated":             unrelated,
 	}
 	diffs := []*typeDiff{{Old: oldFanStats, New: newFanStats}}
@@ -219,14 +219,14 @@ func TestFindDependentObjectsForRecreatedTypes_NestedClosure(t *testing.T) {
 	typeCtx, _, _ := findDependentObjectsForRecreatedTypes(types, nil, nil, diffs)
 
 	if len(typeCtx.types) != 3 {
-		t.Fatalf("expected 3 types in closure (fan_stats + 2 nested), got %d", len(typeCtx.types))
+		t.Fatalf("expected 3 types in closure (point_data + 2 nested), got %d", len(typeCtx.types))
 	}
 
 	got := make(map[string]bool)
 	for _, tt := range typeCtx.types {
 		got[tt.Schema+"."+tt.Name] = true
 	}
-	for _, want := range []string{"public.fan_stats", "public.fan_detail_season", "public.fan_detail_game_team"} {
+	for _, want := range []string{"public.point_data", "public.region_data", "public.report_data"} {
 		if !got[want] {
 			t.Errorf("missing %s from closure", want)
 		}
@@ -235,26 +235,26 @@ func TestFindDependentObjectsForRecreatedTypes_NestedClosure(t *testing.T) {
 		t.Errorf("unrelated should not be in closure")
 	}
 
-	// The changed set is just fan_stats — the others are cascade-only.
-	if _, ok := typeCtx.changed["public.fan_stats"]; !ok {
-		t.Errorf("fan_stats should be in changed set")
+	// The changed set is just point_data — the others are cascade-only.
+	if _, ok := typeCtx.changed["public.point_data"]; !ok {
+		t.Errorf("point_data should be in changed set")
 	}
-	if _, ok := typeCtx.changed["public.fan_detail_season"]; ok {
-		t.Errorf("fan_detail_season should NOT be in changed set (cascade-only)")
+	if _, ok := typeCtx.changed["public.region_data"]; ok {
+		t.Errorf("region_data should NOT be in changed set (cascade-only)")
 	}
 
-	// CREATE order: fan_stats must come before fan_detail_season, which must
-	// come before fan_detail_game_team.
+	// CREATE order: point_data must come before region_data, which must
+	// come before report_data.
 	pos := make(map[string]int)
 	for i, tt := range typeCtx.types {
 		pos[tt.Schema+"."+tt.Name] = i
 	}
-	if pos["public.fan_stats"] >= pos["public.fan_detail_season"] {
-		t.Errorf("fan_stats should be created before fan_detail_season; got positions %d vs %d",
-			pos["public.fan_stats"], pos["public.fan_detail_season"])
+	if pos["public.point_data"] >= pos["public.region_data"] {
+		t.Errorf("point_data should be created before region_data; got positions %d vs %d",
+			pos["public.point_data"], pos["public.region_data"])
 	}
-	if pos["public.fan_detail_season"] >= pos["public.fan_detail_game_team"] {
-		t.Errorf("fan_detail_season should be created before fan_detail_game_team; got positions %d vs %d",
-			pos["public.fan_detail_season"], pos["public.fan_detail_game_team"])
+	if pos["public.region_data"] >= pos["public.report_data"] {
+		t.Errorf("region_data should be created before report_data; got positions %d vs %d",
+			pos["public.region_data"], pos["public.report_data"])
 	}
 }

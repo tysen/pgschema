@@ -1,7 +1,7 @@
 -- WARNING: composite type shape change; DROP+CREATE is the only safe path.
--- column public.team_season.detail data will be lost
--- Function/procedure signatures referencing recreated composites are not detected; if any exist, apply will fail with a clear PG error.
-ALTER TABLE team_season DROP COLUMN detail;
-DROP TYPE IF EXISTS team_season_detail RESTRICT;
-CREATE TYPE team_season_detail AS (home_wins smallint, home_losses smallint, last10 smallint, streak smallint);
-ALTER TABLE team_season ADD COLUMN detail team_season_detail;
+-- column public.widgets.detail data will be lost
+-- Function/procedure signatures referencing recreated types are not detected; if any exist, apply will fail with a clear PG error.
+ALTER TABLE widgets DROP COLUMN detail;
+DROP TYPE IF EXISTS widget_metrics RESTRICT;
+CREATE TYPE widget_metrics AS (count_a smallint, count_b smallint, count_x smallint, count_e smallint);
+ALTER TABLE widgets ADD COLUMN detail widget_metrics;

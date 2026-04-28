@@ -3,28 +3,28 @@
   "pgschema_version": "1.9.0",
   "created_at": "1970-01-01T00:00:00Z",
   "source_fingerprint": {
-    "hash": "bf8675d70a0e578fb93588bc626f1e538c1eedb58ab9369097f1dc5dc4201635"
+    "hash": "ec554a8195adfd4a07dbe896c982af9cc6d7ca05f22a177cfaf4c2b40c7aad64"
   },
   "groups": [
     {
       "steps": [
         {
-          "sql": "-- WARNING: composite type shape change; DROP+CREATE is the only safe path.\n-- Function/procedure signatures referencing recreated composites are not detected; if any exist, apply will fail with a clear PG error.",
+          "sql": "-- WARNING: composite type shape change; DROP+CREATE is the only safe path.\n-- Function/procedure signatures referencing recreated types are not detected; if any exist, apply will fail with a clear PG error.",
           "type": "type",
           "operation": "recreate",
-          "path": "public.team_season_detail"
+          "path": "public.widget_metrics"
         },
         {
-          "sql": "DROP TYPE IF EXISTS team_season_detail RESTRICT;",
+          "sql": "DROP TYPE IF EXISTS widget_metrics RESTRICT;",
           "type": "type",
           "operation": "recreate",
-          "path": "public.team_season_detail"
+          "path": "public.widget_metrics"
         },
         {
-          "sql": "CREATE TYPE team_season_detail AS (home_wins smallint, home_losses smallint, last10 smallint, streak smallint);",
+          "sql": "CREATE TYPE widget_metrics AS (count_a smallint, count_b smallint, count_x smallint, count_e smallint);",
           "type": "type",
           "operation": "recreate",
-          "path": "public.team_season_detail"
+          "path": "public.widget_metrics"
         }
       ]
     }

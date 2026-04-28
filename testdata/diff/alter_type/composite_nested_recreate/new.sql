@@ -1,15 +1,15 @@
-CREATE TYPE public.fan_stats AS (
-    goals real,
-    assists real,
-    bumps real
+CREATE TYPE public.point_data AS (
+    score_a real,
+    score_b real,
+    score_c real
 );
 
-CREATE TYPE public.fan_detail_season AS (
-    season_id int4,
-    stats fan_stats
+CREATE TYPE public.region_data AS (
+    region_id int4,
+    stats point_data
 );
 
-CREATE TYPE public.fan_detail_game_team AS (
-    team_id int4,
-    detail fan_detail_season
+CREATE TYPE public.report_data AS (
+    area_id int4,
+    detail region_data
 );
