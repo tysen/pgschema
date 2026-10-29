@@ -8,7 +8,8 @@ Types:
   ~ widget_metrics
 
 Tables:
-  ~ detail
+  ~ widgets
+    ~ detail (column)
 
 DDL to be executed:
 --------------------------------------------------

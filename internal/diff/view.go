@@ -114,6 +114,12 @@ func generateModifyViewsSQL(diffs []*viewDiff, targetSchema string, collector *d
 			viewKey := diff.New.Schema + "." + diff.New.Name
 			viewName := qualifyEntityName(diff.New.Schema, diff.New.Name, targetSchema)
 
+			// Already dropped and rebuilt from the desired state by an earlier
+			// recreation (e.g. around a type recreate); nothing left to do.
+			if recreatedViews != nil && recreatedViews[viewKey] {
+				continue
+			}
+
 			// Determine types based on whether view is materialized
 			diffType := DiffTypeView
 			if diff.New.Materialized {
@@ -493,66 +499,72 @@ func generateModifyViewsSQL(diffs []*viewDiff, targetSchema string, collector *d
 			continue
 		}
 
-		createDepSQL := generateViewSQL(depView, targetSchema, collector.qualifySchema)
-
-		// Categorize using the correct relkind so materialized dependents are
-		// reported (and commented) as materialized views (issue #415).
-		depDiffType := DiffTypeView
-		depCommentType := DiffTypeViewComment
-		commentKeyword := "VIEW"
-		if depView.Materialized {
-			depDiffType = DiffTypeMaterializedView
-			depCommentType = DiffTypeMaterializedViewComment
-			commentKeyword = "MATERIALIZED VIEW"
-		}
-
-		depContext := &diffContext{
-			Type:                depDiffType,
-			Operation:           DiffOperationRecreate,
-			Path:                fmt.Sprintf("%s.%s", depView.Schema, depView.Name),
-			Source:              depView,
-			CanRunInTransaction: true,
-		}
-		collector.collect(depContext, createDepSQL)
+		generateRecreatedViewSQL(depView, targetSchema, collector)
 
 		// Track this view as recreated to avoid duplicate processing
 		if recreatedViews != nil {
 			recreatedViews[depViewKey] = true
 		}
+	}
+}
 
-		// Recreate view comment if present
-		if depView.Comment != "" {
-			depViewName := qualifyEntityName(depView.Schema, depView.Name, targetSchema)
-			commentSQL := fmt.Sprintf("COMMENT ON %s %s IS %s;", commentKeyword, depViewName, quoteString(depView.Comment))
-			commentContext := &diffContext{
-				Type:                depCommentType,
-				Operation:           DiffOperationCreate,
-				Path:                fmt.Sprintf("%s.%s", depView.Schema, depView.Name),
-				Source:              depView,
-				CanRunInTransaction: true,
-			}
-			collector.collect(commentContext, commentSQL)
-		}
+// generateRecreatedViewSQL rebuilds a dropped view from the desired-state IR:
+// the view itself plus everything the DROP took with it (comment, materialized
+// view indexes, triggers).
+func generateRecreatedViewSQL(view *ir.View, targetSchema string, collector *diffCollector) {
+	createSQL := generateViewSQL(view, targetSchema, collector.qualifySchema)
 
-		// Dropping a materialized view also drops its indexes, so recreate them
-		// for materialized dependents (issue #415).
-		if depView.Materialized && depView.Indexes != nil {
-			indexList := make([]*ir.Index, 0, len(depView.Indexes))
-			for _, index := range depView.Indexes {
-				indexList = append(indexList, index)
-			}
-			generateCreateIndexesSQLWithType(indexList, targetSchema, collector, DiffTypeMaterializedViewIndex, DiffTypeMaterializedViewIndexComment)
-		}
+	// Categorize using the correct relkind so materialized dependents are
+	// reported (and commented) as materialized views (issue #415).
+	diffType := DiffTypeView
+	commentType := DiffTypeViewComment
+	commentKeyword := "VIEW"
+	if view.Materialized {
+		diffType = DiffTypeMaterializedView
+		commentType = DiffTypeMaterializedViewComment
+		commentKeyword = "MATERIALIZED VIEW"
+	}
 
-		// Dropping the view also dropped its triggers (e.g., INSTEAD OF
-		// triggers), so recreate the desired-state triggers
-		if len(depView.Triggers) > 0 {
-			triggerList := make([]*ir.Trigger, 0, len(depView.Triggers))
-			for _, trigger := range depView.Triggers {
-				triggerList = append(triggerList, trigger)
-			}
-			generateCreateViewTriggersSQL(triggerList, targetSchema, collector)
+	context := &diffContext{
+		Type:                diffType,
+		Operation:           DiffOperationRecreate,
+		Path:                fmt.Sprintf("%s.%s", view.Schema, view.Name),
+		Source:              view,
+		CanRunInTransaction: true,
+	}
+	collector.collect(context, createSQL)
+
+	if view.Comment != "" {
+		viewName := qualifyEntityName(view.Schema, view.Name, targetSchema)
+		commentSQL := fmt.Sprintf("COMMENT ON %s %s IS %s;", commentKeyword, viewName, quoteString(view.Comment))
+		commentContext := &diffContext{
+			Type:                commentType,
+			Operation:           DiffOperationCreate,
+			Path:                fmt.Sprintf("%s.%s", view.Schema, view.Name),
+			Source:              view,
+			CanRunInTransaction: true,
 		}
+		collector.collect(commentContext, commentSQL)
+	}
+
+	// Dropping a materialized view also drops its indexes, so recreate them
+	// for materialized dependents (issue #415).
+	if view.Materialized && view.Indexes != nil {
+		indexList := make([]*ir.Index, 0, len(view.Indexes))
+		for _, index := range view.Indexes {
+			indexList = append(indexList, index)
+		}
+		generateCreateIndexesSQLWithType(indexList, targetSchema, collector, DiffTypeMaterializedViewIndex, DiffTypeMaterializedViewIndexComment)
+	}
+
+	// Dropping the view also dropped its triggers (e.g., INSTEAD OF
+	// triggers), so recreate the desired-state triggers
+	if len(view.Triggers) > 0 {
+		triggerList := make([]*ir.Trigger, 0, len(view.Triggers))
+		for _, trigger := range view.Triggers {
+			triggerList = append(triggerList, trigger)
+		}
+		generateCreateViewTriggersSQL(triggerList, targetSchema, collector)
 	}
 }
 

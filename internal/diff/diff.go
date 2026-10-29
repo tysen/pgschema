@@ -301,6 +301,7 @@ type ddlDiff struct {
 	droppedViews              []*ir.View
 	modifiedViews             []*viewDiff
 	allNewViews               map[string]*ir.View // All views from new state (for dependent view handling)
+	allNewTypes               map[string]*ir.Type // All types from new state (for the type recreate closure)
 	addedFunctions            []*ir.Function
 	droppedFunctions          []*ir.Function
 	modifiedFunctions         []*functionDiff
@@ -927,7 +928,7 @@ func generateMigration(oldIR, newIR *ir.IR, targetSchema string, qualifySchema b
 	for _, key := range typeKeys {
 		newType := newTypes[key]
 		if oldType, exists := oldTypes[key]; exists {
-			if !typesEqual(oldType, newType) {
+			if !typesEqual(oldType, newType, targetSchema) {
 				diff.modifiedTypes = append(diff.modifiedTypes, &typeDiff{
 					Old: oldType,
 					New: newType,
@@ -935,6 +936,9 @@ func generateMigration(oldIR, newIR *ir.IR, targetSchema string, qualifySchema b
 			}
 		}
 	}
+	// The recreate closure needs every type in the desired state, including
+	// unchanged composites and domains built on a type being recreated.
+	diff.allNewTypes = newTypes
 
 	// Compare views across all schemas
 	oldViews := make(map[string]*ir.View)
@@ -1729,7 +1733,7 @@ func (d *ddlDiff) generatePreDropMaterializedViewsSQL(targetSchema string, colle
 		affectedTables[key] = tableDiff.Table
 	}
 
-	if len(affectedTables) == 0 {
+	if len(affectedTables) == 0 && len(d.modifiedTypes) == 0 {
 		return preDropped
 	}
 
@@ -1807,7 +1811,97 @@ func (d *ddlDiff) generatePreDropMaterializedViewsSQL(targetSchema string, colle
 		}
 	}
 
+	d.preDropMaterializedViewsForRecreatedTypes(targetSchema, collector, preDropped)
+
 	return preDropped
+}
+
+// preDropMaterializedViewsForRecreatedTypes drops materialized views that read
+// a table column whose type is being recreated (composite shape change, enum
+// non-additive change, domain over a recreated base). The recreate block only
+// handles regular views; a matview must be torn down before the block drops
+// the column and is created again by the modify-views phase. A matview is
+// considered even when its body is unchanged, because the type recreate
+// invalidates its stored column type.
+func (d *ddlDiff) preDropMaterializedViewsForRecreatedTypes(targetSchema string, collector *diffCollector, preDropped map[string]bool) {
+	if len(d.modifiedTypes) == 0 {
+		return
+	}
+	recreatedTypes, _ := computeRecreatedTypeClosure(d.allNewTypes, d.modifiedTypes)
+	if len(recreatedTypes) == 0 {
+		return
+	}
+
+	tablesUsingType := make(map[string]*ir.Table)
+	for _, table := range d.allNewTables {
+		if table == nil {
+			continue
+		}
+		for _, col := range table.Columns {
+			for _, rt := range recreatedTypes {
+				if columnReferencesType(col, rt.Schema, rt.Name) {
+					tablesUsingType[table.Schema+"."+table.Name] = table
+					break
+				}
+			}
+		}
+	}
+
+	modifiedViewsByKey := make(map[string]*viewDiff, len(d.modifiedViews))
+	for _, vd := range d.modifiedViews {
+		if vd.New == nil {
+			continue
+		}
+		modifiedViewsByKey[vd.New.Schema+"."+vd.New.Name] = vd
+	}
+
+	matviewKeys := make([]string, 0, len(d.allNewViews))
+	for key, view := range d.allNewViews {
+		if view != nil && view.Materialized {
+			matviewKeys = append(matviewKeys, key)
+		}
+	}
+	sort.Strings(matviewKeys)
+
+	for _, viewKey := range matviewKeys {
+		view := d.allNewViews[viewKey]
+		if preDropped[viewKey] {
+			continue
+		}
+		depends := false
+		for _, table := range tablesUsingType {
+			if viewDependsOnTable(view, table.Schema, table.Name) {
+				depends = true
+				break
+			}
+		}
+		if !depends {
+			continue
+		}
+
+		// Route the matview through the modify-views recreate path so the
+		// CREATE comes back, synthesizing a no-change viewDiff if needed.
+		vd := modifiedViewsByKey[viewKey]
+		if vd == nil {
+			vd = &viewDiff{Old: view, New: view, RequiresRecreate: true}
+			d.modifiedViews = append(d.modifiedViews, vd)
+			modifiedViewsByKey[viewKey] = vd
+		} else {
+			vd.RequiresRecreate = true
+		}
+
+		viewName := qualifyEntityName(view.Schema, view.Name, targetSchema)
+		sql := fmt.Sprintf("DROP MATERIALIZED VIEW %s RESTRICT;", viewName)
+		context := &diffContext{
+			Type:                DiffTypeMaterializedView,
+			Operation:           DiffOperationRecreate,
+			Path:                fmt.Sprintf("%s.%s", view.Schema, view.Name),
+			Source:              view,
+			CanRunInTransaction: true,
+		}
+		collector.collect(context, sql)
+		preDropped[viewKey] = true
+	}
 }
 
 // generatePreDropRecreatedRegularViewsSQL pre-drops regular (non-materialized)
@@ -2351,8 +2445,14 @@ func (d *ddlDiff) generateModifySQL(targetSchema string, collector *diffCollecto
 	// Modify schemas
 	// Note: Schema modification is out of scope for schema-level comparisons
 
-	// Modify domains (enum label additions already ran before the create phase)
-	generateModifyDomainsSQL(d.modifiedTypes, targetSchema, collector)
+	// Modify types (enum label additions already ran before the create phase).
+	// Composite shape changes and non-additive enum changes have no in-place
+	// ALTER: the type, every composite nesting it, every domain over it, the
+	// table columns of those types and the views reading them are dropped and
+	// created again as one block (issue #625).
+	recreatedTypeCtx, recreatedColCtx, recreatedViewCtx := findDependentObjectsForRecreatedTypes(d.allNewTypes, d.allNewTables, d.allNewViews, d.modifiedTypes)
+	generateModifyDomainsSQL(d.modifiedTypes, recreatedTypeCtx, targetSchema, collector)
+	generateTypeRecreateBlock(recreatedTypeCtx, recreatedColCtx, recreatedViewCtx, targetSchema, collector)
 
 	// Modify sequences
 	generateModifySequencesSQL(d.modifiedSequences, targetSchema, collector)
@@ -2393,8 +2493,13 @@ func (d *ddlDiff) generateModifySQL(targetSchema string, collector *diffCollecto
 	// Exclude newly added views - they will be created in CREATE phase after recreated views
 	dependentViewsCtx := findDependentViewsForRecreatedViews(d.allNewViews, d.modifiedViews, d.addedViews)
 
-	// Track views recreated as dependencies to avoid duplicate processing
+	// Track views recreated as dependencies to avoid duplicate processing.
+	// Views the type recreate block already dropped and created again are
+	// seeded here so the modify-views pass leaves them alone.
 	recreatedViews := make(map[string]bool)
+	for _, v := range recreatedViewCtx.GetDependents(typeRecreateBlockKey) {
+		recreatedViews[v.Schema+"."+v.Name] = true
+	}
 
 	// Sort modifiedViews to process materialized views with RequiresRecreate first.
 	// This ensures dependent views are added to recreatedViews before their own

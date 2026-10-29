@@ -9,7 +9,8 @@ Types:
   ~ widget_metrics
 
 Tables:
-  ~ detail
+  ~ widgets
+    ~ detail (column)
 
 Materialized views:
   ~ widget_summary_mv

@@ -1,9 +1,9 @@
 {
   "version": "1.0.0",
-  "pgschema_version": "1.9.0",
+  "pgschema_version": "1.13.4",
   "created_at": "1970-01-01T00:00:00Z",
   "source_fingerprint": {
-    "hash": "d003a559800a4e02af397f0a4b5764a24fdae8b28817f89ac2cdd4c88527848f"
+    "hash": "b0c6191040e11b4064fd2efca264ec3546dab505abe540cf37ca62fac51eeb96"
   },
   "groups": [
     {
@@ -28,7 +28,7 @@
         },
         {
           "sql": "ALTER TABLE widgets DROP COLUMN detail;",
-          "type": "table",
+          "type": "table.column",
           "operation": "recreate",
           "path": "public.widgets.detail"
         },
@@ -46,7 +46,7 @@
         },
         {
           "sql": "ALTER TABLE widgets ADD COLUMN detail widget_metrics;",
-          "type": "table",
+          "type": "table.column",
           "operation": "recreate",
           "path": "public.widgets.detail"
         },

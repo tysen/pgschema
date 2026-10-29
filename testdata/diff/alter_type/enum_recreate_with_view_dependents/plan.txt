@@ -9,7 +9,8 @@ Types:
   ~ task_status
 
 Tables:
-  ~ status
+  ~ tasks
+    ~ status (column)
 
 Views:
   ~ tasks_view

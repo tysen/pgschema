@@ -1,9 +1,9 @@
 {
   "version": "1.0.0",
-  "pgschema_version": "1.9.0",
+  "pgschema_version": "1.13.4",
   "created_at": "1970-01-01T00:00:00Z",
   "source_fingerprint": {
-    "hash": "589b8330767ffa49c88ab8489199b94cdbb7d96fc96e12c63dd206d57cdae9ef"
+    "hash": "0c780bb0f260d743424d74b948cb4bfd4f97b7dd02bb962254d421a9639af5ae"
   },
   "groups": [
     {
@@ -16,7 +16,7 @@
         },
         {
           "sql": "ALTER TABLE user_profile DROP COLUMN home;",
-          "type": "table",
+          "type": "table.column",
           "operation": "recreate",
           "path": "public.user_profile.home"
         },
@@ -34,7 +34,7 @@
         },
         {
           "sql": "ALTER TABLE user_profile ADD COLUMN home location NOT NULL;",
-          "type": "table",
+          "type": "table.column",
           "operation": "recreate",
           "path": "public.user_profile.home"
         }

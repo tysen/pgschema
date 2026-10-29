@@ -1,9 +1,9 @@
 {
   "version": "1.0.0",
-  "pgschema_version": "1.9.0",
+  "pgschema_version": "1.13.4",
   "created_at": "1970-01-01T00:00:00Z",
   "source_fingerprint": {
-    "hash": "288b8fdea869328a7f53245a9ca268ebf46eba03a256c2a8c38eec71d555464b"
+    "hash": "899ac0c4926d55a8cb21616b64eee280948588f5056cd9af69be7a5e5981a8ed"
   },
   "groups": [
     {
@@ -22,7 +22,7 @@
         },
         {
           "sql": "ALTER TABLE tasks DROP COLUMN status;",
-          "type": "table",
+          "type": "table.column",
           "operation": "recreate",
           "path": "public.tasks.status"
         },
@@ -40,7 +40,7 @@
         },
         {
           "sql": "ALTER TABLE tasks ADD COLUMN status task_status;",
-          "type": "table",
+          "type": "table.column",
           "operation": "recreate",
           "path": "public.tasks.status"
         },

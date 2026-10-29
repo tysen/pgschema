@@ -5,7 +5,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/tysen/pgschema/ir"
+	"github.com/pgplex/pgschema/ir"
 )
 
 // dependentColumn pairs a table with a column whose data type is a type
@@ -73,6 +73,20 @@ func newDependentTypesContext() *dependentTypesContext {
 // IsEmpty reports whether the closure is empty (no recreate needed).
 func (ctx *dependentTypesContext) IsEmpty() bool {
 	return ctx == nil || len(ctx.types) == 0
+}
+
+// Contains reports whether the type with the given "schema.name" key is in
+// the recreate closure.
+func (ctx *dependentTypesContext) Contains(key string) bool {
+	if ctx == nil {
+		return false
+	}
+	for _, t := range ctx.types {
+		if t.Schema+"."+t.Name == key {
+			return true
+		}
+	}
+	return false
 }
 
 // computeRecreatedTypeClosure builds the full set of types that must be
@@ -437,10 +451,10 @@ func generateTypeRecreateBlock(
 	for _, dc := range dependentColumns {
 		tableName := getTableNameWithSchema(dc.Table.Schema, dc.Table.Name, targetSchema)
 		ctx := &diffContext{
-			Type:                DiffTypeTable,
+			Type:                DiffTypeTableColumn,
 			Operation:           DiffOperationRecreate,
 			Path:                fmt.Sprintf("%s.%s.%s", dc.Table.Schema, dc.Table.Name, dc.Column.Name),
-			Source:              primary,
+			Source:              dc.Column,
 			CanRunInTransaction: true,
 		}
 		collector.collect(ctx, fmt.Sprintf("ALTER TABLE %s DROP COLUMN %s;", tableName, ir.QuoteIdentifier(dc.Column.Name)))
@@ -480,7 +494,7 @@ func generateTypeRecreateBlock(
 			Source:              primary,
 			CanRunInTransaction: true,
 		}
-		collector.collect(ctx, generateTypeSQL(t, targetSchema))
+		collector.collect(ctx, generateTypeSQL(t, targetSchema, collector.qualifySchema))
 	}
 
 	// 6. Re-add table columns. NOT NULL is restored unconditionally — see
@@ -489,10 +503,10 @@ func generateTypeRecreateBlock(
 		tableName := getTableNameWithSchema(dc.Table.Schema, dc.Table.Name, targetSchema)
 		columnSQL := buildAddColumnSQL(dc, targetSchema)
 		ctx := &diffContext{
-			Type:                DiffTypeTable,
+			Type:                DiffTypeTableColumn,
 			Operation:           DiffOperationRecreate,
 			Path:                fmt.Sprintf("%s.%s.%s", dc.Table.Schema, dc.Table.Name, dc.Column.Name),
-			Source:              primary,
+			Source:              dc.Column,
 			CanRunInTransaction: true,
 		}
 		collector.collect(ctx, fmt.Sprintf("ALTER TABLE %s ADD COLUMN %s;", tableName, columnSQL))
@@ -500,14 +514,7 @@ func generateTypeRecreateBlock(
 
 	// 7. Recreate dependent views in topo order.
 	for _, v := range dependentViews {
-		ctx := &diffContext{
-			Type:                DiffTypeView,
-			Operation:           DiffOperationRecreate,
-			Path:                fmt.Sprintf("%s.%s", v.Schema, v.Name),
-			Source:              v,
-			CanRunInTransaction: true,
-		}
-		collector.collect(ctx, generateViewSQL(v, targetSchema))
+		generateRecreatedViewSQL(v, targetSchema, collector)
 	}
 }
 

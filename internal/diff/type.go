@@ -2,6 +2,7 @@ package diff
 
 import (
 	"fmt"
+	"slices"
 	"sort"
 	"strings"
 
@@ -38,10 +39,16 @@ func generateCreateTypesSQL(types []*ir.Type, targetSchema string, collector *di
 	}
 }
 
-// generateModifyEnumsSQL generates ALTER TYPE ... ADD VALUE statements
+// generateModifyEnumsSQL generates ALTER TYPE ... ADD VALUE statements for
+// enums that only gained labels. Any other enum change (removed, reordered or
+// renamed labels) has no in-place ALTER and goes through the type recreate
+// block in the modify phase instead.
 func generateModifyEnumsSQL(diffs []*typeDiff, targetSchema string, collector *diffCollector) {
 	for _, diff := range diffs {
 		if diff.Old.Kind != ir.TypeKindEnum || diff.New.Kind != ir.TypeKindEnum {
+			continue
+		}
+		if !isEnumAddOnly(diff.Old, diff.New) {
 			continue
 		}
 		for _, stmt := range generateAlterTypeEnumStatements(diff.Old, diff.New, targetSchema) {
@@ -59,10 +66,15 @@ func generateModifyEnumsSQL(diffs []*typeDiff, targetSchema string, collector *d
 	}
 }
 
-// generateModifyDomainsSQL generates ALTER DOMAIN statements
-func generateModifyDomainsSQL(diffs []*typeDiff, targetSchema string, collector *diffCollector) {
+// generateModifyDomainsSQL generates ALTER DOMAIN statements. Domains that are
+// dropped and created again because their base type is recreated are skipped;
+// the recreate block emits them with their desired-state definition.
+func generateModifyDomainsSQL(diffs []*typeDiff, recreated *dependentTypesContext, targetSchema string, collector *diffCollector) {
 	for _, diff := range diffs {
 		if diff.Old.Kind != ir.TypeKindDomain || diff.New.Kind != ir.TypeKindDomain {
+			continue
+		}
+		if recreated.Contains(diff.New.Schema + "." + diff.New.Name) {
 			continue
 		}
 		for _, stmt := range generateAlterDomainStatements(diff.Old, diff.New, targetSchema) {
@@ -76,6 +88,56 @@ func generateModifyDomainsSQL(diffs []*typeDiff, targetSchema string, collector 
 			collector.collect(context, stmt)
 		}
 	}
+}
+
+// isEnumAddOnly reports whether transforming oldType into newType is
+// representable as a sequence of ALTER TYPE ADD VALUE statements only.
+// True iff every value in old is present in new in the same relative order
+// — i.e. removing values, reordering, or renaming all return false and route
+// through the recreate path.
+//
+// An empty old enum returns false: the existing ADD VALUE emitter cannot
+// build a valid BEFORE/AFTER clause without an existing anchor value.
+// Postgres rejects empty enums in practice, but the IR permits them.
+func isEnumAddOnly(oldType, newType *ir.Type) bool {
+	if oldType == nil || newType == nil {
+		return false
+	}
+	if len(oldType.EnumValues) == 0 {
+		return false
+	}
+	oldSet := make(map[string]struct{}, len(oldType.EnumValues))
+	for _, v := range oldType.EnumValues {
+		oldSet[v] = struct{}{}
+	}
+	filtered := make([]string, 0, len(oldType.EnumValues))
+	for _, v := range newType.EnumValues {
+		if _, ok := oldSet[v]; ok {
+			filtered = append(filtered, v)
+		}
+	}
+	return slices.Equal(filtered, oldType.EnumValues)
+}
+
+// typeNeedsRecreate reports whether a typeDiff requires DROP+CREATE rather
+// than in-place ALTER. True for composite shape change and enum non-additive
+// change. Domains are always handled by generateAlterDomainStatements; their
+// recreates only happen transitively when their base type recreates, which
+// is decided inside the closure expansion, not here.
+func typeNeedsRecreate(diff *typeDiff) bool {
+	if diff == nil || diff.Old == nil || diff.New == nil {
+		return false
+	}
+	if diff.Old.Kind != diff.New.Kind {
+		return false
+	}
+	switch diff.Old.Kind {
+	case ir.TypeKindComposite:
+		return true
+	case ir.TypeKindEnum:
+		return !isEnumAddOnly(diff.Old, diff.New)
+	}
+	return false
 }
 
 // generateDropTypesSQL generates DROP TYPE statements
@@ -300,8 +362,11 @@ func generateTypeSQL(typeObj *ir.Type, targetSchema string, qualifySchema bool) 
 	}
 }
 
-// typesEqual compares two types for equality
-func typesEqual(old, new *ir.Type) bool {
+// typesEqual compares two types for equality. targetSchema normalizes
+// schema-qualified composite attribute types the same way columnsEqual does:
+// a target-DB inspection often reports them unqualified while the desired
+// state (built in a temporary schema and rewritten) reports them qualified.
+func typesEqual(old, new *ir.Type, targetSchema string) bool {
 	if old.Schema != new.Schema {
 		return false
 	}
@@ -325,13 +390,17 @@ func typesEqual(old, new *ir.Type) bool {
 		}
 
 	case ir.TypeKindComposite:
-		// For composite types, compare columns
+		// Compare attributes positionally: Postgres has no in-place reorder for
+		// composite attributes, so a reorder is a real (DROP+CREATE) change.
 		if len(old.Columns) != len(new.Columns) {
 			return false
 		}
 		for i, col := range old.Columns {
 			newCol := new.Columns[i]
-			if col.Name != newCol.Name || col.DataType != newCol.DataType {
+			if col.Name != newCol.Name {
+				return false
+			}
+			if stripSchemaPrefix(col.DataType, targetSchema) != stripSchemaPrefix(newCol.DataType, targetSchema) {
 				return false
 			}
 		}

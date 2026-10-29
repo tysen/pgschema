@@ -13,5 +13,5 @@ CREATE TYPE task_status AS ENUM (
     'cancelled'
 );
 
-CREATE DOMAIN task_status_d AS public.task_status
+CREATE DOMAIN task_status_d AS task_status
   NOT NULL;

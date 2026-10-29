@@ -4,11 +4,11 @@ import "testing"
 
 func TestExtractMigrateUsing(t *testing.T) {
 	tests := []struct {
-		name         string
-		input        string
-		wantUsing    string
-		wantClean    string
-		wantOK       bool
+		name      string
+		input     string
+		wantUsing string
+		wantClean string
+		wantOK    bool
 	}{
 		{
 			name:      "empty",

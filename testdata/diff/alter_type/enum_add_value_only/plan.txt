@@ -1,14 +1,17 @@
-Plan: 1 to modify.
+Plan: 2 to modify.
 
 Summary by type:
-  types: 1 to modify
+  types: 2 to modify
 
 Types:
+  ~ task_status
   ~ task_status
 
 DDL to be executed:
 --------------------------------------------------
 
+-- Transaction Group #1
 ALTER TYPE task_status ADD VALUE 'cancelled' AFTER 'archived';
 
+-- Transaction Group #2
 ALTER TYPE task_status ADD VALUE 'restored' AFTER 'cancelled';

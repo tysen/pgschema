@@ -3,7 +3,7 @@ package diff
 import (
 	"testing"
 
-	"github.com/tysen/pgschema/ir"
+	"github.com/pgplex/pgschema/ir"
 )
 
 // makeComposite is a tiny helper for table-driven tests.
@@ -209,10 +209,10 @@ func TestFindDependentObjectsForRecreatedTypes_NestedClosure(t *testing.T) {
 	unrelated := makeComposite("public", "unrelated", "x", "integer")
 
 	types := map[string]*ir.Type{
-		"public.point_data":             newFanStats,
-		"public.region_data":     fanDetailSeason,
-		"public.report_data":  fanDetailGameTeam,
-		"public.unrelated":             unrelated,
+		"public.point_data":  newFanStats,
+		"public.region_data": fanDetailSeason,
+		"public.report_data": fanDetailGameTeam,
+		"public.unrelated":   unrelated,
 	}
 	diffs := []*typeDiff{{Old: oldFanStats, New: newFanStats}}
 
