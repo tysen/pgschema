@@ -1961,15 +1961,17 @@ func (d *ddlDiff) generateCreateSQL(targetSchema string, collector *diffCollecto
 	// 1. Types/domains with no deps on new functions or tables — created immediately.
 	// 2. Domains with function deps ONLY (no table dep) — created after functions
 	//    but before tables, so tables that use the domain as a column type work.
-	// 3. Domains with table deps (with or without function deps) — created after
-	//    ALL tables, because the domain's base type is a table's implicit row type.
+	// 3. Types with table deps (with or without function deps) — created after
+	//    ALL tables: a domain whose base type is a table's implicit row type
+	//    (issue #535), a composite with an attribute of a new table's row type
+	//    (issue #626), and transitively any composite or domain built on one.
 	typesWithoutDeps := []*ir.Type{}
 	domainsWithFunctionDepsOnly := []*ir.Type{}
-	domainsWithTableDeps := []*ir.Type{}
+	typesWithTableDeps := []*ir.Type{}
 	// Two separate lookups so table classification can distinguish which
-	// deferred-domain bucket a column type belongs to.
+	// deferred-type bucket a column type belongs to.
 	functionDomainLookup := make(map[string]struct{})
-	tableDomainLookup := make(map[string]struct{})
+	tableTypeLookup := make(map[string]struct{})
 
 	addToLookup := func(lookup map[string]struct{}, typeObj *ir.Type) {
 		lookup[strings.ToLower(typeObj.Name)] = struct{}{}
@@ -1980,16 +1982,34 @@ func (d *ddlDiff) generateCreateSQL(targetSchema string, collector *diffCollecto
 	}
 
 	for _, typeObj := range d.addedTypes {
+		if domainReferencesNewTable(typeObj, newTableNameLookup) || compositeReferencesNewTable(typeObj, newTableNameLookup) {
+			addToLookup(tableTypeLookup, typeObj)
+		}
+	}
+	// Propagate to types built on a table-dep type until no new ones are found.
+	for grew := true; grew; {
+		grew = false
+		for _, typeObj := range d.addedTypes {
+			if typeMatchesLookup(typeObj.Name, typeObj.Schema, tableTypeLookup) {
+				continue
+			}
+			if typeReferencesDeferredType(typeObj, tableTypeLookup) {
+				addToLookup(tableTypeLookup, typeObj)
+				grew = true
+			}
+		}
+	}
+
+	for _, typeObj := range d.addedTypes {
+		if typeMatchesLookup(typeObj.Name, typeObj.Schema, tableTypeLookup) {
+			typesWithTableDeps = append(typesWithTableDeps, typeObj)
+			continue
+		}
 		if typeObj.Kind != ir.TypeKindDomain {
 			typesWithoutDeps = append(typesWithoutDeps, typeObj)
 			continue
 		}
-		hasTableDep := domainReferencesNewTable(typeObj, newTableNameLookup)
-		hasFunctionDep := domainReferencesNewFunction(typeObj, newFunctionLookup)
-		if hasTableDep {
-			domainsWithTableDeps = append(domainsWithTableDeps, typeObj)
-			addToLookup(tableDomainLookup, typeObj)
-		} else if hasFunctionDep {
+		if domainReferencesNewFunction(typeObj, newFunctionLookup) {
 			domainsWithFunctionDepsOnly = append(domainsWithFunctionDepsOnly, typeObj)
 			addToLookup(functionDomainLookup, typeObj)
 		} else {
@@ -1998,11 +2018,11 @@ func (d *ddlDiff) generateCreateSQL(targetSchema string, collector *diffCollecto
 	}
 	// Combined lookup for all deferred domains (used by table classification
 	// to detect ANY deferred domain dependency).
-	deferredDomainLookup := make(map[string]struct{}, len(functionDomainLookup)+len(tableDomainLookup))
+	deferredDomainLookup := make(map[string]struct{}, len(functionDomainLookup)+len(tableTypeLookup))
 	for k, v := range functionDomainLookup {
 		deferredDomainLookup[k] = v
 	}
-	for k, v := range tableDomainLookup {
+	for k, v := range tableTypeLookup {
 		deferredDomainLookup[k] = v
 	}
 
@@ -2048,10 +2068,10 @@ func (d *ddlDiff) generateCreateSQL(targetSchema string, collector *diffCollecto
 	tablesAfterTableDomains := []*ir.Table{}
 
 	tableBatch := func(table *ir.Table) int {
-		if tableUsesDeferredDomain(table, tableDomainLookup) {
+		if tableUsesDeferredType(table, tableTypeLookup) {
 			return 2
 		}
-		if tableReferencesNewFunction(table, newFunctionLookup) || tableUsesDeferredDomain(table, functionDomainLookup) {
+		if tableReferencesNewFunction(table, newFunctionLookup) || tableUsesDeferredType(table, functionDomainLookup) {
 			return 1
 		}
 		return 0
@@ -2185,10 +2205,10 @@ func (d *ddlDiff) generateCreateSQL(targetSchema string, collector *diffCollecto
 	generateCreateFunctionsSQL(functionsWithTableDeps, targetSchema, collector)
 	generateCreateProceduresSQL(proceduresAfterSecondBatch, targetSchema, collector)
 
-	// Create domains whose base type is a new table's implicit row type (issue #535).
-	// Emitted after ALL other tables so the row type exists, even if the domain also
+	// Create types that depend on a new table's implicit row type (issues #535, #626).
+	// Emitted after ALL other tables so the row type exists, even if the type also
 	// depends on a function (which was already created above).
-	generateCreateTypesSQL(domainsWithTableDeps, targetSchema, collector)
+	generateCreateTypesSQL(typesWithTableDeps, targetSchema, collector)
 
 	// Create tables that use table-dep domains as column types (now that those domains exist).
 	deferredPolicies3, deferredConstraints3 := generateCreateTablesSQL(tablesAfterTableDomains, targetSchema, collector, existingTables, shouldDeferPolicy, d.suppressedInlineFKs, d.allNewTables, d.partitionIndexes)
@@ -3723,27 +3743,15 @@ func policyReferencesOtherNewTable(policy *ir.RLSPolicy, newTables map[string]st
 	return false
 }
 
-// tableUsesDeferredDomain determines if a table uses any deferred domain types in its columns.
-func tableUsesDeferredDomain(table *ir.Table, deferredDomains map[string]struct{}) bool {
-	if len(deferredDomains) == 0 || table == nil {
+// tableUsesDeferredType determines if a table uses any deferred type in its columns.
+func tableUsesDeferredType(table *ir.Table, deferredTypes map[string]struct{}) bool {
+	if len(deferredTypes) == 0 || table == nil {
 		return false
 	}
 
 	for _, col := range table.Columns {
-		if col.DataType == "" {
-			continue
-		}
-		// Normalize the type name for lookup
-		typeName := strings.ToLower(col.DataType)
-		if _, ok := deferredDomains[typeName]; ok {
+		if typeMatchesLookup(extractBaseTypeName(col.DataType), table.Schema, deferredTypes) {
 			return true
-		}
-		// Try with table's schema prefix
-		if table.Schema != "" && !strings.Contains(typeName, ".") {
-			qualified := fmt.Sprintf("%s.%s", strings.ToLower(table.Schema), typeName)
-			if _, ok := deferredDomains[qualified]; ok {
-				return true
-			}
 		}
 	}
 	return false
@@ -3758,6 +3766,40 @@ func domainReferencesNewTable(typeObj *ir.Type, newTables map[string]struct{}) b
 	}
 	baseName := extractBaseTypeName(typeObj.BaseType)
 	return typeMatchesLookup(baseName, typeObj.Schema, newTables)
+}
+
+// compositeReferencesNewTable determines if any attribute of a composite type is a
+// new table's implicit row type (or an array of it). Such a composite must be created
+// after the table (issue #626).
+func compositeReferencesNewTable(typeObj *ir.Type, newTables map[string]struct{}) bool {
+	if len(newTables) == 0 || typeObj == nil || typeObj.Kind != ir.TypeKindComposite {
+		return false
+	}
+	for _, col := range typeObj.Columns {
+		if typeMatchesLookup(extractBaseTypeName(col.DataType), typeObj.Schema, newTables) {
+			return true
+		}
+	}
+	return false
+}
+
+// typeReferencesDeferredType determines if a type is built on a deferred type: a
+// composite with an attribute of that type, or a domain over it.
+func typeReferencesDeferredType(typeObj *ir.Type, deferred map[string]struct{}) bool {
+	if len(deferred) == 0 || typeObj == nil {
+		return false
+	}
+	switch typeObj.Kind {
+	case ir.TypeKindComposite:
+		for _, col := range typeObj.Columns {
+			if typeMatchesLookup(extractBaseTypeName(col.DataType), typeObj.Schema, deferred) {
+				return true
+			}
+		}
+	case ir.TypeKindDomain:
+		return typeMatchesLookup(extractBaseTypeName(typeObj.BaseType), typeObj.Schema, deferred)
+	}
+	return false
 }
 
 // domainReferencesNewFunction determines if a domain references any newly added functions

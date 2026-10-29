@@ -1,0 +1,25 @@
+Plan: 3 to add.
+
+Summary by type:
+  types: 1 to add
+  tables: 2 to add
+
+Types:
+  + mid
+
+Tables:
+  + foo
+  + holder
+
+DDL to be executed:
+--------------------------------------------------
+
+CREATE TABLE IF NOT EXISTS foo (
+    id uuid
+);
+
+CREATE TYPE mid AS (f foo);
+
+CREATE TABLE IF NOT EXISTS holder (
+    m mid
+);
