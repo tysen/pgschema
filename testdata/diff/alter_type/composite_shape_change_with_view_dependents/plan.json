@@ -1,0 +1,68 @@
+{
+  "version": "1.0.0",
+  "pgschema_version": "1.9.0",
+  "created_at": "1970-01-01T00:00:00Z",
+  "source_fingerprint": {
+    "hash": "d003a559800a4e02af397f0a4b5764a24fdae8b28817f89ac2cdd4c88527848f"
+  },
+  "groups": [
+    {
+      "steps": [
+        {
+          "sql": "-- WARNING: composite type shape change; DROP+CREATE is the only safe path.\n-- column public.widgets.detail data will be lost\n-- view public.widget_summary will be DROP+CREATEd; if its body references columns or fields removed by this change it will fail to recreate.\n-- view public.widget_overview will be DROP+CREATEd; if its body references columns or fields removed by this change it will fail to recreate.\n-- Function/procedure signatures referencing recreated types are not detected; if any exist, apply will fail with a clear PG error.",
+          "type": "type",
+          "operation": "recreate",
+          "path": "public.widget_metrics"
+        },
+        {
+          "sql": "DROP VIEW IF EXISTS widget_overview RESTRICT;",
+          "type": "view",
+          "operation": "recreate",
+          "path": "public.widget_overview"
+        },
+        {
+          "sql": "DROP VIEW IF EXISTS widget_summary RESTRICT;",
+          "type": "view",
+          "operation": "recreate",
+          "path": "public.widget_summary"
+        },
+        {
+          "sql": "ALTER TABLE widgets DROP COLUMN detail;",
+          "type": "table",
+          "operation": "recreate",
+          "path": "public.widgets.detail"
+        },
+        {
+          "sql": "DROP TYPE IF EXISTS widget_metrics RESTRICT;",
+          "type": "type",
+          "operation": "recreate",
+          "path": "public.widget_metrics"
+        },
+        {
+          "sql": "CREATE TYPE widget_metrics AS (count_a smallint, count_b smallint, count_x smallint);",
+          "type": "type",
+          "operation": "recreate",
+          "path": "public.widget_metrics"
+        },
+        {
+          "sql": "ALTER TABLE widgets ADD COLUMN detail widget_metrics;",
+          "type": "table",
+          "operation": "recreate",
+          "path": "public.widgets.detail"
+        },
+        {
+          "sql": "CREATE OR REPLACE VIEW widget_summary AS\n SELECT region_id,\n    area_id,\n    detail\n   FROM widgets;",
+          "type": "view",
+          "operation": "recreate",
+          "path": "public.widget_summary"
+        },
+        {
+          "sql": "CREATE OR REPLACE VIEW widget_overview AS\n SELECT region_id,\n    count(*) AS team_count\n   FROM widget_summary\n  GROUP BY region_id;",
+          "type": "view",
+          "operation": "recreate",
+          "path": "public.widget_overview"
+        }
+      ]
+    }
+  ]
+}

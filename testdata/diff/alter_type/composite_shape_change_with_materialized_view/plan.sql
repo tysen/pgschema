@@ -1,0 +1,19 @@
+DROP MATERIALIZED VIEW widget_summary_mv RESTRICT;
+
+-- WARNING: composite type shape change; DROP+CREATE is the only safe path.
+-- column public.widgets.detail data will be lost
+-- Function/procedure signatures referencing recreated types are not detected; if any exist, apply will fail with a clear PG error.
+
+ALTER TABLE widgets DROP COLUMN detail;
+
+DROP TYPE IF EXISTS widget_metrics RESTRICT;
+
+CREATE TYPE widget_metrics AS (count_a smallint, count_b smallint, count_x smallint);
+
+ALTER TABLE widgets ADD COLUMN detail widget_metrics;
+
+CREATE MATERIALIZED VIEW IF NOT EXISTS widget_summary_mv AS
+ SELECT region_id,
+    area_id,
+    detail
+   FROM widgets;

@@ -409,15 +409,16 @@ func FromJSON(jsonData []byte) (*Plan, error) {
 
 // ========== PRIVATE METHODS ==========
 
-// sameChangeKey identifies create steps that together add one object: same
-// type and path, emitted from the same source object (e.g. CREATE SEQUENCE
-// plus a deferred ALTER SEQUENCE ... OWNED BY). Such steps are counted as a
-// single addition. Alter and drop steps, and steps without a source (plans
+// sameChangeKey identifies create or recreate steps that together change one
+// object: same type and path, emitted from the same source object (e.g.
+// CREATE SEQUENCE plus a deferred ALTER SEQUENCE ... OWNED BY, or the DROP
+// TYPE and CREATE TYPE of a type recreate). Such steps are counted as a
+// single change. Alter and drop steps, and steps without a source (plans
 // loaded from JSON), get no key and are counted individually as before.
 // Keying on the source keeps distinct objects that share a path, such as
 // overloaded functions, counted separately.
 func sameChangeKey(objType, path, operation string, source diff.DiffSource) string {
-	if source == nil || operation != "create" {
+	if source == nil || (operation != "create" && operation != "recreate") {
 		return ""
 	}
 	return fmt.Sprintf("%s.%s.%s.%p", objType, path, operation, source)
@@ -586,7 +587,7 @@ func (p *Plan) calculateSummaryFromSteps() PlanSummary {
 			case "create":
 				stats.Add++
 				summary.Add++
-			case "alter":
+			case "alter", "recreate":
 				stats.Change++
 				summary.Change++
 			case "drop":
@@ -687,7 +688,7 @@ func (p *Plan) calculateSummaryFromSteps() PlanSummary {
 			case "create":
 				stats.Add++
 				summary.Add++
-			case "alter":
+			case "alter", "recreate":
 				stats.Change++
 				summary.Change++
 			case "drop":

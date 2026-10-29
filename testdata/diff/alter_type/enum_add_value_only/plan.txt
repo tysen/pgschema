@@ -1,0 +1,14 @@
+Plan: 1 to modify.
+
+Summary by type:
+  types: 1 to modify
+
+Types:
+  ~ task_status
+
+DDL to be executed:
+--------------------------------------------------
+
+ALTER TYPE task_status ADD VALUE 'cancelled' AFTER 'archived';
+
+ALTER TYPE task_status ADD VALUE 'restored' AFTER 'cancelled';

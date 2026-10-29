@@ -1,0 +1,8 @@
+-- WARNING: enum value removal/reorder requires DROP+CREATE in Postgres (no DROP VALUE / no reorder).
+-- Function/procedure signatures referencing recreated types are not detected; if any exist, apply will fail with a clear PG error.
+DROP TYPE IF EXISTS task_status RESTRICT;
+CREATE TYPE task_status AS ENUM (
+    'active',
+    'pending',
+    'archived'
+);

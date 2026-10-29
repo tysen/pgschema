@@ -342,6 +342,14 @@ func testPlanOutputs(t *testing.T, container *struct {
 		t.Fatalf("Failed to generate plan human output: %v", err)
 	}
 
+	// Guard: if plan.sql has any DDL, plan.txt must not claim "No changes
+	// detected" — that's the symptom of operations missing from the
+	// human-summary switch (e.g. recreate not counted for non-matview types).
+	// Catches future divergence between the SQL pipeline and the summary.
+	if strings.TrimSpace(sqlFormattedOutput) != "" && strings.Contains(humanOutput, "No changes detected") {
+		t.Errorf("plan SQL is non-empty but human summary says \"No changes detected\".\nSQL:\n%s\n\nHuman:\n%s", sqlFormattedOutput, humanOutput)
+	}
+
 	if *generate {
 		// Generate mode: write actual output to expected file
 		actualHumanStr := strings.ReplaceAll(humanOutput, "\r\n", "\n")

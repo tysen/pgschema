@@ -1,0 +1,32 @@
+{
+  "version": "1.0.0",
+  "pgschema_version": "1.9.0",
+  "created_at": "1970-01-01T00:00:00Z",
+  "source_fingerprint": {
+    "hash": "3c8056665aad60b2cd604ca731a53448aecf2102e3b93053d58b1c1393a8b3a1"
+  },
+  "groups": [
+    {
+      "steps": [
+        {
+          "sql": "-- WARNING: enum value removal/reorder requires DROP+CREATE in Postgres (no DROP VALUE / no reorder).\n-- Function/procedure signatures referencing recreated types are not detected; if any exist, apply will fail with a clear PG error.",
+          "type": "type",
+          "operation": "recreate",
+          "path": "public.task_status"
+        },
+        {
+          "sql": "DROP TYPE IF EXISTS task_status RESTRICT;",
+          "type": "type",
+          "operation": "recreate",
+          "path": "public.task_status"
+        },
+        {
+          "sql": "CREATE TYPE task_status AS ENUM (\n    'active',\n    'pending',\n    'archived'\n);",
+          "type": "type",
+          "operation": "recreate",
+          "path": "public.task_status"
+        }
+      ]
+    }
+  ]
+}

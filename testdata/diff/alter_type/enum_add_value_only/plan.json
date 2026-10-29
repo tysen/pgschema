@@ -1,0 +1,26 @@
+{
+  "version": "1.0.0",
+  "pgschema_version": "1.9.0",
+  "created_at": "1970-01-01T00:00:00Z",
+  "source_fingerprint": {
+    "hash": "3c8056665aad60b2cd604ca731a53448aecf2102e3b93053d58b1c1393a8b3a1"
+  },
+  "groups": [
+    {
+      "steps": [
+        {
+          "sql": "ALTER TYPE task_status ADD VALUE 'cancelled' AFTER 'archived';",
+          "type": "type",
+          "operation": "alter",
+          "path": "public.task_status"
+        },
+        {
+          "sql": "ALTER TYPE task_status ADD VALUE 'restored' AFTER 'cancelled';",
+          "type": "type",
+          "operation": "alter",
+          "path": "public.task_status"
+        }
+      ]
+    }
+  ]
+}
